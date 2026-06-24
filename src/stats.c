@@ -48,15 +48,6 @@ uint64_t stat_get(gateway_stats_t *stats, stat_counter_t counter) {
     return 0;
 }
 
-void stat_snapshot(gateway_stats_t *stats, metrics_snapshot_t *snap) {
-    time_t t = time(NULL);
-    snap->timestamp = (uint64_t)t;
-    snap->packets_processed = stats->counters[STAT_PKTS_LAN_TO_WAN]
-                           + stats->counters[STAT_PKTS_WAN_TO_LAN];
-    snap->active_qps = (uint32_t)stats->counters[STAT_ACTIVE_QPS];
-    snap->buffer_usage_percent = 0;
-}
-
 void stat_dump(gateway_stats_t *stats) {
     LOG_INFO("========== RDMA Gateway Statistics ==========");
     for (int i = 0; i < STAT_COUNTER_COUNT; i++) {

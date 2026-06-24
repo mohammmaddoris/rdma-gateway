@@ -271,7 +271,7 @@ static int wan_main_loop(void *arg) {
 
         uint64_t current = rte_rdtsc();
         if (current - last_timer >= timer_interval) {
-            proc_timer_callback(proc, wan_port, pool);
+            proc_timer_callback(proc, wan_port);
             last_timer = current;
             timer_count++;
 

@@ -23,12 +23,7 @@ void cc_init(congestion_control_t *cc, uint32_t high_watermark, uint32_t low_wat
     cc->cnp_dst_ip = 0;
 }
 
-void cc_setCnpAddrs(congestion_control_t *cc, uint32_t src_ip, uint32_t dst_ip) {
-    cc->cnp_src_ip = src_ip;
-    cc->cnp_dst_ip = dst_ip;
-}
-
-int cc_checkBuffer(congestion_control_t *cc, uint32_t used_buffers, uint32_t total_buffers) {
+int cc_check_buffer(congestion_control_t *cc, uint32_t used_buffers, uint32_t total_buffers) {
     if (total_buffers == 0) return 0;
 
     cc->buffer_usage_percent = (used_buffers * 100) / total_buffers;
@@ -45,7 +40,7 @@ int cc_checkBuffer(congestion_control_t *cc, uint32_t used_buffers, uint32_t tot
     return cc->congestion_detected;
 }
 
-int cc_shouldSendCNP(congestion_control_t *cc, uint32_t qpn) {
+int cc_should_send_cnp(congestion_control_t *cc, uint32_t qpn) {
     if (!cc->congestion_detected) {
         return 0;
     }
@@ -60,7 +55,7 @@ int cc_shouldSendCNP(congestion_control_t *cc, uint32_t qpn) {
     return 1;
 }
 
-struct rte_mbuf* cc_buildCNP(congestion_control_t *cc, uint32_t qpn, struct rte_mempool *pool) {
+struct rte_mbuf* cc_build_cnp(congestion_control_t *cc, uint32_t qpn, struct rte_mempool *pool) {
     struct rte_mbuf *m = rte_pktmbuf_alloc(pool);
     if (!m)
         return NULL;
@@ -114,13 +109,4 @@ struct rte_mbuf* cc_buildCNP(congestion_control_t *cc, uint32_t qpn, struct rte_
     m->pkt_len = cnp_size;
 
     return m;
-}
-
-void cc_updateStats(congestion_control_t *cc, uint32_t packets_queued, uint32_t packets_dequeued) {
-    cc->total_packets_queued += packets_queued;
-    cc->total_packets_dequeued += packets_dequeued;
-}
-
-void cc_setRateLimit(congestion_control_t *cc, uint32_t rate_pps) {
-    cc->cnp_ctx.current_rate_limit = rate_pps;
 }

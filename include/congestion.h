@@ -1,8 +1,5 @@
 /*
- * congestion.h - 基于水位线的简单拥塞控制 + CNP 生成
- *
- * 仅做"高水位发 CNP、低水位解除"的粗粒度控制，
- * 未实现 DCQCN/HPCC 的精细速率机。  -- TODO
+ * congestion.h - 基于缓冲区水位线的粗粒度拥塞控制 + CNP 生成
  */
 #ifndef _CONGESTION_H_
 #define _CONGESTION_H_
@@ -37,7 +34,6 @@ typedef struct {
     uint64_t total_cnp_sent;
     uint64_t cnp_by_qp[256];
     uint64_t last_cnp_time;
-    uint32_t current_rate_limit;
     uint8_t congestion_detected;
 } cnp_context_t;
 
@@ -53,17 +49,12 @@ typedef struct {
 
     cnp_context_t cnp_ctx;
 
-    uint64_t total_packets_queued;
-    uint64_t total_packets_dequeued;
     uint64_t queue_overflow_count;
 } congestion_control_t;
 
 void cc_init(congestion_control_t *cc, uint32_t high_watermark, uint32_t low_watermark);
-void cc_setCnpAddrs(congestion_control_t *cc, uint32_t src_ip, uint32_t dst_ip);
-int cc_checkBuffer(congestion_control_t *cc, uint32_t used_buffers, uint32_t total_buffers);
-int cc_shouldSendCNP(congestion_control_t *cc, uint32_t qpn);
-struct rte_mbuf* cc_buildCNP(congestion_control_t *cc, uint32_t qpn, struct rte_mempool *pool);
-void cc_updateStats(congestion_control_t *cc, uint32_t packets_queued, uint32_t packets_dequeued);
-void cc_setRateLimit(congestion_control_t *cc, uint32_t rate_pps);
+int cc_check_buffer(congestion_control_t *cc, uint32_t used_buffers, uint32_t total_buffers);
+int cc_should_send_cnp(congestion_control_t *cc, uint32_t qpn);
+struct rte_mbuf* cc_build_cnp(congestion_control_t *cc, uint32_t qpn, struct rte_mempool *pool);
 
 #endif

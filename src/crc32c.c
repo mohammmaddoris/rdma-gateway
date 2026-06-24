@@ -87,12 +87,3 @@ uint32_t crc32c_calculate(const uint8_t *data, size_t length) {
         return crc32c_sw(data, length);
     }
 }
-
-/* 批量 CRC32C：逐个调用单缓冲实现 */
-void crc32c_batch_calculate(crc32c_task_t *tasks, int count) {
-    if (count <= 0) return;
-
-    for (int i = 0; i < count; i++) {
-        tasks[i].result = crc32c_calculate(tasks[i].data, tasks[i].length);
-    }
-}

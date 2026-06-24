@@ -43,7 +43,7 @@ typedef struct {
 void proc_init(processor_context_t *proc, uint32_t lcore_id, uint8_t is_lan_core);
 void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t lan_port, uint16_t wan_port, struct rte_mempool *pool);
 void proc_process_wan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t lan_port, uint16_t wan_port, struct rte_mempool *pool);
-void proc_timer_callback(processor_context_t *proc, uint16_t wan_port, struct rte_mempool *pool);
+void proc_timer_callback(processor_context_t *proc, uint16_t wan_port);
 
 uint32_t proc_flow_to_lan_lcore(struct rte_ipv4_hdr *ip, struct rte_udp_hdr *udp, uint32_t qpn);
 uint32_t proc_flow_to_wan_lcore(struct rte_ipv4_hdr *ip, struct rte_udp_hdr *udp, uint32_t qpn);

@@ -49,33 +49,27 @@ typedef struct {
     uint64_t total_retransmit;
     uint64_t total_timeout;
 
-    struct rte_timer retransmit_timer;
-    uint8_t timer_initialized;
-    
     uint32_t peer_ip;
 } arq_context_t;
 
 typedef struct {
     arq_context_t contexts[MAX_QP_CTX];
     rte_spinlock_t global_lock;
-    struct rte_timer_stat *stats;
 } arq_manager_t;
 
-void arqMgrInit(arq_manager_t *mgr);
-arq_context_t* arqGetOrCreate(arq_manager_t *mgr, uint32_t qpn);
-arq_context_t* arqLookup(arq_manager_t *mgr, uint32_t qpn);
-void arqRemove(arq_manager_t *mgr, uint32_t qpn);
+void arq_mgr_init(arq_manager_t *mgr);
+arq_context_t* arq_get_or_create(arq_manager_t *mgr, uint32_t qpn);
+arq_context_t* arq_lookup(arq_manager_t *mgr, uint32_t qpn);
 
-int arqSendPkt(arq_context_t *arq, struct rte_mbuf *m, uint32_t psn, uint8_t segment_type);
-int arqHandleAck(arq_context_t *arq, uint32_t ack_psn);
-int arqHandleNack(arq_context_t *arq, uint32_t nack_psn, uint16_t wan_port, struct rte_mempool *pool);
-void arqCheckTimeouts(arq_context_t *arq, uint16_t wan_port, struct rte_mempool *pool);
-int arqGetRetransList(arq_context_t *arq, uint32_t *psn_list, uint32_t *count);
-void arqSetPeerIP(arq_context_t *arq, uint32_t peer_ip);
+int arq_send_pkt(arq_context_t *arq, struct rte_mbuf *m, uint32_t psn, uint8_t segment_type);
+int arq_handle_ack(arq_context_t *arq, uint32_t ack_psn);
+int arq_handle_nack(arq_context_t *arq, uint32_t nack_psn, uint16_t wan_port);
+void arq_check_timeouts(arq_context_t *arq, uint16_t wan_port);
+void arq_set_peer_ip(arq_context_t *arq, uint32_t peer_ip);
 
-struct rte_mbuf* arqBuildCtrlMsg(uint32_t qpn, uint8_t type, uint32_t psn,
+struct rte_mbuf* arq_build_ctrl_msg(uint32_t qpn, uint8_t type, uint32_t psn,
                                  uint32_t dst_ip, uint32_t *psn_list, uint32_t count,
                                  struct rte_mempool *pool);
-int arqParseCtrlMsg(struct rte_mbuf *m, arq_control_msg_t *msg);
+int arq_parse_ctrl_msg(struct rte_mbuf *m, arq_control_msg_t *msg);
 
 #endif

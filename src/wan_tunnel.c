@@ -140,7 +140,7 @@ static int resolve_next_hop(uint32_t dst_ip_be, uint16_t out_port,
     return 0;
 }
 
-struct rte_mbuf* wan_fwdRoCE(struct rte_mbuf *m, uint16_t out_port) {
+struct rte_mbuf* wan_fwd_roce(struct rte_mbuf *m, uint16_t out_port) {
     struct rte_ether_hdr *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
     struct rte_ipv4_hdr *ip = (struct rte_ipv4_hdr *)(eth + 1);
     struct rte_udp_hdr *udp = (struct rte_udp_hdr *)(ip + 1);
@@ -173,7 +173,7 @@ struct rte_mbuf* wan_fwdRoCE(struct rte_mbuf *m, uint16_t out_port) {
     return m;
 }
 
-int wan_fwdPassthrough(struct rte_mbuf *m, uint16_t out_port) {
+int wan_fwd_passthrough(struct rte_mbuf *m, uint16_t out_port) {
     struct rte_ether_hdr *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
     struct rte_ipv4_hdr *ip = (struct rte_ipv4_hdr *)(eth + 1);
     char src_ip_buf[32], dst_ip_buf[32];
@@ -204,7 +204,7 @@ int wan_fwdPassthrough(struct rte_mbuf *m, uint16_t out_port) {
     return 0;
 }
 
-int wan_prepareForLAN(struct rte_mbuf *m) {
+int wan_prepare_for_lan(struct rte_mbuf *m) {
     struct rte_ether_hdr *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
     struct rte_ipv4_hdr *ip = (struct rte_ipv4_hdr *)(eth + 1);
 
@@ -214,6 +214,6 @@ int wan_prepareForLAN(struct rte_mbuf *m) {
     return 0;
 }
 
-uint32_t wan_getPeerIP(uint32_t dst_ip) {
+uint32_t wan_get_peer_ip(uint32_t dst_ip) {
     return pm_lookup(&g_peer_manager, dst_ip);
 }

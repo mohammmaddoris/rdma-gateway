@@ -9,13 +9,13 @@
 
 extern uint16_t g_wan_port;
 
-void jbInit(jitter_buffer_t *jb) {
+void jb_init(jitter_buffer_t *jb) {
     memset(jb, 0, sizeof(jitter_buffer_t));
     rte_spinlock_init(&jb->global_lock);
     jb->active_write_count = 0;
 }
 
-jb_write_context_t* jbGetOrCreateWrite(jitter_buffer_t *jb, uint32_t qpn, uint32_t first_psn) {
+jb_write_context_t* jb_get_or_create_write(jitter_buffer_t *jb, uint32_t qpn, uint32_t first_psn) {
     rte_spinlock_lock(&jb->global_lock);
 
     for (int i = 0; i < JB_MAX_PENDING_WRITES; i++) {
@@ -43,21 +43,7 @@ jb_write_context_t* jbGetOrCreateWrite(jitter_buffer_t *jb, uint32_t qpn, uint32
     return NULL;
 }
 
-jb_write_context_t* jbLookupWrite(jitter_buffer_t *jb, uint32_t qpn) {
-    rte_spinlock_lock(&jb->global_lock);
-
-    for (int i = 0; i < JB_MAX_PENDING_WRITES; i++) {
-        if (jb->writes[i].qpn == qpn && jb->writes[i].segment_count > 0) {
-            rte_spinlock_unlock(&jb->global_lock);
-            return &jb->writes[i];
-        }
-    }
-
-    rte_spinlock_unlock(&jb->global_lock);
-    return NULL;
-}
-
-int jbAddSeg(jitter_buffer_t *jb, uint32_t qpn, uint32_t psn, uint8_t segment_type, struct rte_mbuf *m) {
+int jb_add_seg(jitter_buffer_t *jb, uint32_t qpn, uint32_t psn, uint8_t segment_type, struct rte_mbuf *m) {
     rte_spinlock_lock(&jb->global_lock);
 
     jb_write_context_t *write_ctx = NULL;
@@ -69,7 +55,7 @@ int jbAddSeg(jitter_buffer_t *jb, uint32_t qpn, uint32_t psn, uint8_t segment_ty
     }
 
     if (!write_ctx) {
-        write_ctx = jbGetOrCreateWrite(jb, qpn, psn);
+        write_ctx = jb_get_or_create_write(jb, qpn, psn);
         if (!write_ctx) {
             rte_spinlock_unlock(&jb->global_lock);
             return -1;
@@ -121,7 +107,7 @@ int jbAddSeg(jitter_buffer_t *jb, uint32_t qpn, uint32_t psn, uint8_t segment_ty
     return 1;
 }
 
-int jbIsWriteComplete(jitter_buffer_t *jb, uint32_t qpn) {
+int jb_is_write_complete(jitter_buffer_t *jb, uint32_t qpn) {
     rte_spinlock_lock(&jb->global_lock);
 
     for (int i = 0; i < JB_MAX_PENDING_WRITES; i++) {
@@ -136,7 +122,7 @@ int jbIsWriteComplete(jitter_buffer_t *jb, uint32_t qpn) {
     return 0;
 }
 
-int jbGetOrderedSegs(jitter_buffer_t *jb, uint32_t qpn, struct rte_mbuf **out, uint32_t *count) {
+int jb_get_ordered_segs(jitter_buffer_t *jb, uint32_t qpn, struct rte_mbuf **out, uint32_t *count) {
     *count = 0;
 
     rte_spinlock_lock(&jb->global_lock);
@@ -190,7 +176,7 @@ int jbGetOrderedSegs(jitter_buffer_t *jb, uint32_t qpn, struct rte_mbuf **out, u
     return all_received ? 0 : -1;
 }
 
-void jbRemoveWrite(jitter_buffer_t *jb, uint32_t qpn) {
+void jb_remove_write(jitter_buffer_t *jb, uint32_t qpn) {
     rte_spinlock_lock(&jb->global_lock);
 
     for (int i = 0; i < JB_MAX_PENDING_WRITES; i++) {
@@ -210,7 +196,7 @@ void jbRemoveWrite(jitter_buffer_t *jb, uint32_t qpn) {
     rte_spinlock_unlock(&jb->global_lock);
 }
 
-uint32_t jbCheckMissing(jitter_buffer_t *jb, uint32_t qpn) {
+uint32_t jb_check_missing(jitter_buffer_t *jb, uint32_t qpn) {
     rte_spinlock_lock(&jb->global_lock);
 
     jb_write_context_t *write_ctx = NULL;

@@ -111,9 +111,9 @@ static int forge_and_send_ack(struct rte_mbuf *orig_m, struct rte_mempool *pool,
 
 void proc_init(processor_context_t *proc, uint32_t lcore_id, uint8_t is_lan_core) {
     memset(proc, 0, sizeof(processor_context_t));
-    qpMgrInit(&proc->qp_mgr);
-    arqMgrInit(&proc->arq_mgr);
-    jbInit(&proc->jitter_buffer);
+    qp_mgr_init(&proc->qp_mgr);
+    arq_mgr_init(&proc->arq_mgr);
+    jb_init(&proc->jitter_buffer);
     cc_init(&proc->congestion_ctrl, BUFFER_HIGH_WATER, BUFFER_LOW_WATER);
     stat_init(&proc->stats);
     proc->lcore_id = lcore_id;
@@ -159,12 +159,12 @@ static void check_congestion(processor_context_t *proc, uint16_t lan_port, struc
     uint32_t used_buffers = calculate_arq_window_usage(proc);
     uint32_t total_buffers = MAX_QP_CTX * WINDOW_SIZE;
     
-    cc_checkBuffer(&proc->congestion_ctrl, used_buffers, total_buffers);
+    cc_check_buffer(&proc->congestion_ctrl, used_buffers, total_buffers);
     if (proc->congestion_ctrl.congestion_detected) {
         for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
             if (proc->arq_mgr.contexts[i].qpn != 0) {
-                if (cc_shouldSendCNP(&proc->congestion_ctrl, proc->arq_mgr.contexts[i].qpn)) {
-                    struct rte_mbuf *cnp = cc_buildCNP(&proc->congestion_ctrl, proc->arq_mgr.contexts[i].qpn, pool);
+                if (cc_should_send_cnp(&proc->congestion_ctrl, proc->arq_mgr.contexts[i].qpn)) {
+                    struct rte_mbuf *cnp = cc_build_cnp(&proc->congestion_ctrl, proc->arq_mgr.contexts[i].qpn, pool);
                     if (cnp) {
                         if (rte_eth_tx_burst(lan_port, 0, &cnp, 1) == 0) {
                             LOG_WARN("Failed to send CNP");
@@ -191,17 +191,17 @@ void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
 
     struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
     uint32_t dst_ip = rte_be_to_cpu_32(ip_hdr->dst_addr);
-    uint32_t peer_ip = wan_getPeerIP(dst_ip);
+    uint32_t peer_ip = wan_get_peer_ip(dst_ip);
 
     if (peer_ip == 0) {
         stat_inc(&proc->stats, STAT_PKTS_PASSTHROUGH);
-        wan_fwdPassthrough(m, wan_port);
+        wan_fwd_passthrough(m, wan_port);
         return;
     }
 
     if (ip_hdr->next_proto_id != IPPROTO_UDP) {
         stat_inc(&proc->stats, STAT_PKTS_PASSTHROUGH);
-        wan_fwdPassthrough(m, wan_port);
+        wan_fwd_passthrough(m, wan_port);
         return;
     }
 
@@ -210,7 +210,7 @@ void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
 
     if (dst_port != 4791) {
         stat_inc(&proc->stats, STAT_PKTS_PASSTHROUGH);
-        wan_fwdPassthrough(m, wan_port);
+        wan_fwd_passthrough(m, wan_port);
         return;
     }
 
@@ -219,7 +219,7 @@ void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
 
     if (!is_write_opcode(opcode)) {
         stat_inc(&proc->stats, STAT_PKTS_PASSTHROUGH);
-        wan_fwdPassthrough(m, wan_port);
+        wan_fwd_passthrough(m, wan_port);
         return;
     }
 
@@ -227,7 +227,7 @@ void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
     uint32_t psn = rte_be_to_cpu_32(bth->psn) & 0x00FFFFFF;
     uint8_t segment_type = get_segment_type(opcode);
 
-    qp_context_t *qp_ctx = qpGetOrCreate(&proc->qp_mgr, qpn);
+    qp_context_t *qp_ctx = qp_get_or_create(&proc->qp_mgr, qpn);
     if (!qp_ctx) {
         rte_pktmbuf_free(m);
         stat_inc(&proc->stats, STAT_PKTS_DROPPED);
@@ -241,13 +241,13 @@ void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
     forge_and_send_ack(m, pool, lan_port, bth);
     stat_inc(&proc->stats, STAT_ACK_SPOOFED_SENT);
 
-    struct rte_mbuf *wan_m = wan_fwdRoCE(m, wan_port);
+    struct rte_mbuf *wan_m = wan_fwd_roce(m, wan_port);
 
     /* ARQ 上下文与 QP 一一对应，此处复用 qpn 做查找 */
-    arq_context_t *arq = arqGetOrCreate(&proc->arq_mgr, qpn);
+    arq_context_t *arq = arq_get_or_create(&proc->arq_mgr, qpn);
     if (arq) {
-        arqSendPkt(arq, wan_m, psn, segment_type);
-        arqSetPeerIP(arq, peer_ip);
+        arq_send_pkt(arq, wan_m, psn, segment_type);
+        arq_set_peer_ip(arq, peer_ip);
     }
 
     if (rte_eth_tx_burst(wan_port, 0, &wan_m, 1) == 0) {
@@ -285,14 +285,14 @@ void proc_process_wan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
 
     if (dst_port == ARQ_CTRL_PORT) {
         arq_control_msg_t msg;
-        if (arqParseCtrlMsg(m, &msg) == 0) {
-            arq_context_t *arq = arqLookup(&proc->arq_mgr, msg.qpn);
+        if (arq_parse_ctrl_msg(m, &msg) == 0) {
+            arq_context_t *arq = arq_lookup(&proc->arq_mgr, msg.qpn);
             if (arq) {
                 if (msg.type == ARQ_MSG_ACK) {
-                    arqHandleAck(arq, msg.psn);
+                    arq_handle_ack(arq, msg.psn);
                     stat_inc(&proc->stats, STAT_ARQ_ACK_RECEIVED);
                 } else if (msg.type == ARQ_MSG_NACK) {
-                    arqHandleNack(arq, msg.psn, wan_port, pool);
+                    arq_handle_nack(arq, msg.psn, wan_port);
                     stat_inc(&proc->stats, STAT_ARQ_NACK_RECEIVED);
                 }
             }
@@ -323,7 +323,7 @@ void proc_process_wan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
 
     stat_inc(&proc->stats, STAT_PKTS_WAN_TO_LAN);
 
-    int added = jbAddSeg(&proc->jitter_buffer, qpn, psn, segment_type, m);
+    int added = jb_add_seg(&proc->jitter_buffer, qpn, psn, segment_type, m);
     if (added < 0) {
         rte_pktmbuf_free(m);
         stat_inc(&proc->stats, STAT_PKTS_DROPPED);
@@ -331,12 +331,12 @@ void proc_process_wan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
     }
 
     if (added == 1) {
-        uint32_t missing_psn = jbCheckMissing(&proc->jitter_buffer, qpn);
+        uint32_t missing_psn = jb_check_missing(&proc->jitter_buffer, qpn);
         if (missing_psn != 0) {
             uint32_t dst_ip = rte_be_to_cpu_32(ip_hdr->dst_addr);
-            uint32_t peer_ip = wan_getPeerIP(dst_ip);
+            uint32_t peer_ip = wan_get_peer_ip(dst_ip);
 
-            struct rte_mbuf *nack_msg = arqBuildCtrlMsg(qpn, ARQ_MSG_NACK, missing_psn, peer_ip, NULL, 0, pool);
+            struct rte_mbuf *nack_msg = arq_build_ctrl_msg(qpn, ARQ_MSG_NACK, missing_psn, peer_ip, NULL, 0, pool);
             if (nack_msg) {
                 if (rte_eth_tx_burst(wan_port, 0, &nack_msg, 1) == 0) {
                     rte_pktmbuf_free(nack_msg);
@@ -348,25 +348,25 @@ void proc_process_wan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
         }
     }
 
-    if (jbIsWriteComplete(&proc->jitter_buffer, qpn)) {
+    if (jb_is_write_complete(&proc->jitter_buffer, qpn)) {
         /* 栈上缓冲足够 JB_MAX_SEGMENTS 个指针，避免 static 共享 */
         struct rte_mbuf *segments[JB_MAX_SEGMENTS];
         uint32_t seg_count = 0;
 
-        if (jbGetOrderedSegs(&proc->jitter_buffer, qpn, segments, &seg_count) == 0 && seg_count > 0) {
+        if (jb_get_ordered_segs(&proc->jitter_buffer, qpn, segments, &seg_count) == 0 && seg_count > 0) {
             for (uint32_t i = 0; i < seg_count; i++) {
                 struct rte_mbuf *lan_m = segments[i];
-                wan_prepareForLAN(lan_m);
+                wan_prepare_for_lan(lan_m);
 
                 if (rte_eth_tx_burst(lan_port, 0, &lan_m, 1) == 0) {
                     rte_pktmbuf_free(lan_m);
                 }
             }
 
-            jbRemoveWrite(&proc->jitter_buffer, qpn);
+            jb_remove_write(&proc->jitter_buffer, qpn);
             uint32_t dst_ip = rte_be_to_cpu_32(ip_hdr->dst_addr);
-            uint32_t peer_ip = wan_getPeerIP(dst_ip);
-            struct rte_mbuf *ack_msg = arqBuildCtrlMsg(qpn, ARQ_MSG_ACK, psn, peer_ip, NULL, 0, pool);
+            uint32_t peer_ip = wan_get_peer_ip(dst_ip);
+            struct rte_mbuf *ack_msg = arq_build_ctrl_msg(qpn, ARQ_MSG_ACK, psn, peer_ip, NULL, 0, pool);
             if (ack_msg) {
                 if (rte_eth_tx_burst(wan_port, 0, &ack_msg, 1) == 0) {
                     rte_pktmbuf_free(ack_msg);
@@ -379,10 +379,10 @@ void proc_process_wan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
     }
 }
 
-void proc_timer_callback(processor_context_t *proc, uint16_t wan_port, struct rte_mempool *pool) {
+void proc_timer_callback(processor_context_t *proc, uint16_t wan_port) {
     for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
         if (proc->arq_mgr.contexts[i].qpn != 0) {
-            arqCheckTimeouts(&proc->arq_mgr.contexts[i], wan_port, pool);
+            arq_check_timeouts(&proc->arq_mgr.contexts[i], wan_port);
         }
     }
 

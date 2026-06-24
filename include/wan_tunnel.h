@@ -15,10 +15,10 @@
 
 extern uint32_t wan_tunnel_src_ip;
 
-struct rte_mbuf* wan_fwdRoCE(struct rte_mbuf *m, uint16_t out_port);
-int wan_fwdPassthrough(struct rte_mbuf *m, uint16_t out_port);
-int wan_prepareForLAN(struct rte_mbuf *m);
-uint32_t wan_getPeerIP(uint32_t dst_ip);
+struct rte_mbuf* wan_fwd_roce(struct rte_mbuf *m, uint16_t out_port);
+int wan_fwd_passthrough(struct rte_mbuf *m, uint16_t out_port);
+int wan_prepare_for_lan(struct rte_mbuf *m);
+uint32_t wan_get_peer_ip(uint32_t dst_ip);
 
 void arp_cache_init(void);
 int arp_cache_add(uint32_t ip_addr, struct rte_ether_addr *mac_addr);

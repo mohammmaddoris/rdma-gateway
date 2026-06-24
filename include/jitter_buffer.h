@@ -44,17 +44,16 @@ typedef struct {
     uint32_t active_write_count;
 } jitter_buffer_t;
 
-void jbInit(jitter_buffer_t *jb);
-jb_write_context_t* jbGetOrCreateWrite(jitter_buffer_t *jb, uint32_t qpn, uint32_t first_psn);
-jb_write_context_t* jbLookupWrite(jitter_buffer_t *jb, uint32_t qpn);
-int jbAddSeg(jitter_buffer_t *jb, uint32_t qpn, uint32_t psn, uint8_t segment_type, struct rte_mbuf *m);
-int jbIsWriteComplete(jitter_buffer_t *jb, uint32_t qpn);
+void jb_init(jitter_buffer_t *jb);
+jb_write_context_t* jb_get_or_create_write(jitter_buffer_t *jb, uint32_t qpn, uint32_t first_psn);
+int jb_add_seg(jitter_buffer_t *jb, uint32_t qpn, uint32_t psn, uint8_t segment_type, struct rte_mbuf *m);
+int jb_is_write_complete(jitter_buffer_t *jb, uint32_t qpn);
 /*
  * 取出按序排列的段指针。out 由调用方提供（容量需 >= JB_MAX_SEGMENTS），
  * 返回 0 表示成功，段数写入 *count。
  */
-int jbGetOrderedSegs(jitter_buffer_t *jb, uint32_t qpn, struct rte_mbuf **out, uint32_t *count);
-void jbRemoveWrite(jitter_buffer_t *jb, uint32_t qpn);
-uint32_t jbCheckMissing(jitter_buffer_t *jb, uint32_t qpn);
+int jb_get_ordered_segs(jitter_buffer_t *jb, uint32_t qpn, struct rte_mbuf **out, uint32_t *count);
+void jb_remove_write(jitter_buffer_t *jb, uint32_t qpn);
+uint32_t jb_check_missing(jitter_buffer_t *jb, uint32_t qpn);
 
 #endif

@@ -14,12 +14,12 @@
 
 #define ARQ_MAGIC 0x41525130
 
-void arqMgrInit(arq_manager_t *mgr) {
+void arq_mgr_init(arq_manager_t *mgr) {
     memset(mgr, 0, sizeof(arq_manager_t));
     rte_spinlock_init(&mgr->global_lock);
 }
 
-arq_context_t* arqGetOrCreate(arq_manager_t *mgr, uint32_t qpn) {
+arq_context_t* arq_get_or_create(arq_manager_t *mgr, uint32_t qpn) {
     rte_spinlock_lock(&mgr->global_lock);
 
     for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
@@ -45,7 +45,7 @@ arq_context_t* arqGetOrCreate(arq_manager_t *mgr, uint32_t qpn) {
     return NULL;
 }
 
-arq_context_t* arqLookup(arq_manager_t *mgr, uint32_t qpn) {
+arq_context_t* arq_lookup(arq_manager_t *mgr, uint32_t qpn) {
     rte_spinlock_lock(&mgr->global_lock);
 
     for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
@@ -59,26 +59,7 @@ arq_context_t* arqLookup(arq_manager_t *mgr, uint32_t qpn) {
     return NULL;
 }
 
-void arqRemove(arq_manager_t *mgr, uint32_t qpn) {
-    rte_spinlock_lock(&mgr->global_lock);
-
-    for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
-        if (mgr->contexts[i].qpn == qpn) {
-            for (uint32_t j = 0; j < WINDOW_SIZE; j++) {
-                if (mgr->contexts[i].send_window[j].mbuf) {
-                    rte_pktmbuf_free(mgr->contexts[i].send_window[j].mbuf);
-                    mgr->contexts[i].send_window[j].mbuf = NULL;
-                }
-            }
-            memset(&mgr->contexts[i], 0, sizeof(arq_context_t));
-            break;
-        }
-    }
-
-    rte_spinlock_unlock(&mgr->global_lock);
-}
-
-int arqSendPkt(arq_context_t *arq, struct rte_mbuf *m, uint32_t psn, uint8_t segment_type) {
+int arq_send_pkt(arq_context_t *arq, struct rte_mbuf *m, uint32_t psn, uint8_t segment_type) {
     rte_spinlock_lock(&arq->lock);
 
     uint32_t idx = arq->send_next % WINDOW_SIZE;
@@ -104,33 +85,32 @@ int arqSendPkt(arq_context_t *arq, struct rte_mbuf *m, uint32_t psn, uint8_t seg
     return 0;
 }
 
-int arqHandleAck(arq_context_t *arq, uint32_t ack_psn) {
+int arq_handle_ack(arq_context_t *arq, uint32_t ack_psn) {
     rte_spinlock_lock(&arq->lock);
 
+    /* 累积 ACK：释放 send_base 起、PSN 不晚于 ack_psn 的所有在途报文 */
     while (arq->send_base < arq->send_next) {
         uint32_t idx = arq->send_base % WINDOW_SIZE;
-        uint32_t entry_psn = arq->send_window[idx].psn;
-        uint32_t diff = psn_forward_dist(entry_psn, ack_psn);
+        uint32_t diff = psn_forward_dist(arq->send_window[idx].psn, ack_psn);
 
-        if (diff == 0) {
-            rte_pktmbuf_free(arq->send_window[idx].mbuf);
-            arq->send_window[idx].mbuf = NULL;
-            arq->send_window[idx].in_flight = 0;
-            arq->send_base++;
-            arq->total_ack_received++;
-        } else if (diff < 0x800000) {
-            arq->send_window[idx].in_flight = 0;
-            arq->send_base++;
-        } else {
+        if (diff >= 0x800000) {
             break;
         }
+
+        if (arq->send_window[idx].mbuf) {
+            rte_pktmbuf_free(arq->send_window[idx].mbuf);
+            arq->send_window[idx].mbuf = NULL;
+        }
+        arq->send_window[idx].in_flight = 0;
+        arq->send_base++;
+        arq->total_ack_received++;
     }
 
     rte_spinlock_unlock(&arq->lock);
     return 0;
 }
 
-struct rte_mbuf* arqBuildCtrlMsg(uint32_t qpn, uint8_t type, uint32_t psn,
+struct rte_mbuf* arq_build_ctrl_msg(uint32_t qpn, uint8_t type, uint32_t psn,
                                  uint32_t dst_ip, uint32_t *psn_list, uint32_t count,
                                  struct rte_mempool *pool) {
     struct rte_mbuf *m = rte_pktmbuf_alloc(pool);
@@ -192,7 +172,7 @@ struct rte_mbuf* arqBuildCtrlMsg(uint32_t qpn, uint8_t type, uint32_t psn,
     return m;
 }
 
-int arqParseCtrlMsg(struct rte_mbuf *m, arq_control_msg_t *msg) {
+int arq_parse_ctrl_msg(struct rte_mbuf *m, arq_control_msg_t *msg) {
     struct rte_ether_hdr *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
     struct rte_ipv4_hdr *ip = (struct rte_ipv4_hdr *)(eth + 1);
     struct rte_udp_hdr *udp = (struct rte_udp_hdr *)(ip + 1);
@@ -215,7 +195,7 @@ int arqParseCtrlMsg(struct rte_mbuf *m, arq_control_msg_t *msg) {
     return 0;
 }
 
-int arqHandleNack(arq_context_t *arq, uint32_t nack_psn, uint16_t wan_port, struct rte_mempool *pool) {
+int arq_handle_nack(arq_context_t *arq, uint32_t nack_psn, uint16_t wan_port) {
     /* NACK: 重传 nack_psn 及之前的 in-flight 报文 */
     rte_spinlock_lock(&arq->lock);
     uint32_t retrans_count = 0;
@@ -255,7 +235,7 @@ int arqHandleNack(arq_context_t *arq, uint32_t nack_psn, uint16_t wan_port, stru
     return retrans_count;
 }
 
-void arqCheckTimeouts(arq_context_t *arq, uint16_t wan_port, struct rte_mempool *pool) {
+void arq_check_timeouts(arq_context_t *arq, uint16_t wan_port) {
     rte_spinlock_lock(&arq->lock);
     uint64_t current_time = rte_rdtsc();
     uint64_t timeout_cycles = rte_get_timer_hz() * RETRY_TIMEOUT_MS / 1000;
@@ -291,26 +271,8 @@ void arqCheckTimeouts(arq_context_t *arq, uint16_t wan_port, struct rte_mempool 
     rte_spinlock_unlock(&arq->lock);
 }
 
-int arqGetRetransList(arq_context_t *arq, uint32_t *psn_list, uint32_t *count) {
-    rte_spinlock_lock(&arq->lock);
-
-    uint32_t num = 0;
-    for (uint32_t i = arq->send_base; i < arq->send_next && num < *count; i++) {
-        uint32_t idx = i % WINDOW_SIZE;
-        if (arq->send_window[idx].in_flight) {
-            psn_list[num++] = arq->send_window[idx].psn;
-        }
-    }
-
-    *count = num;
-    rte_spinlock_unlock(&arq->lock);
-    return num;
-}
-
-void arqSetPeerIP(arq_context_t *arq, uint32_t peer_ip) {
+void arq_set_peer_ip(arq_context_t *arq, uint32_t peer_ip) {
     rte_spinlock_lock(&arq->lock);
     arq->peer_ip = peer_ip;
     rte_spinlock_unlock(&arq->lock);
-    char ip_buf[32];
-    ip_to_str(peer_ip, ip_buf, sizeof(ip_buf));
 }
