@@ -1,8 +1,6 @@
 /*
- * roce_defs.h - RoCEv2 协议字段与 OpCode 定义
- *
- * 仅保留网关实际处理 WRITE 路径所需的最小集合，其它 OpCode
- * (SEND/READ/ATOMIC 等) 不在此声明，避免误导调用方。
+ * RoCEv2 protocol fields & opcodes
+ * minimal set needed for WRITE path processing
  */
 #ifndef _ROCE_DEFS_H_
 #define _ROCE_DEFS_H_
@@ -18,29 +16,29 @@
 #define ROCE_OPCODE_WRITE_LAST_IMM  0x0E
 #define ROCE_OPCODE_ACK             0x11
 
-/* Base Transport Header (BTH)，12 字节 */
+/* Base Transport Header, 12 bytes */
 struct roce_bth {
     uint8_t  opcode;
-    uint8_t  tver_pad;      // 高 4 位 TVer，低 4 位 Pad 计数
+    uint8_t  tver_pad;
     uint16_t pkey;
-    uint8_t  f_b_se_m;      // 标志位 F/B/SE/M 各 1 位，余 4 位保留
-    uint8_t  pad_res;       // Pad 2 位，保留 6 位
-    uint32_t dqpn;          // 目的 QPN(24 位) + 保留(8 位)
-    uint32_t psn;           // PSN(24 位) + 保留(8 位)，ACK 中为 APSN
+    uint8_t  f_b_se_m;
+    uint8_t  pad_res;
+    uint32_t dqpn;          // dest QPN (24 bits) + reserved (8 bits)
+    uint32_t psn;           // PSN (24 bits) + reserved (8 bits)
 } __attribute__((packed));
 
-/* ACK Extended Transport Header (AETH)，4 字节 */
+/* ACK Extended Transport Header, 4 bytes */
 struct roce_aeth {
-    uint8_t  syndrome;      // ACK 为 0x00，NAK 为 0x60
-    uint8_t  msn;           // 消息序号
-    uint16_t credit;        // 信用值(0xFFFF 表示不限)
+    uint8_t  syndrome;
+    uint8_t  msn;
+    uint16_t credit;
 } __attribute__((packed));
 
-/* RDMA Extension Header (RETH)，16 字节，仅 WRITE/READ 使用 */
+/* RDMA Extension Header, 16 bytes, WRITE/READ only */
 struct roce_reth {
-    uint64_t va;            // 虚拟地址
-    uint32_t rkey;          // 远程内存键
-    uint32_t len;           // DMA 长度
+    uint64_t va;
+    uint32_t rkey;
+    uint32_t len;
 } __attribute__((packed));
 
 static inline int is_write_opcode(uint8_t opcode) {

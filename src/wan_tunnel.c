@@ -1,5 +1,5 @@
 /*
- * wan_tunnel.c - WAN 报文转发与 ARP 缓存实现
+ * WAN packet forwarding & ARP cache
  */
 #include "wan_tunnel.h"
 #include "log.h"
@@ -33,7 +33,7 @@ void arp_cache_init(void) {
 }
 
 int arp_cache_add(uint32_t ip_addr, struct rte_ether_addr *mac_addr) {
-    char ip_buf[32];
+    char buf[32];
     rte_spinlock_lock(&arp_cache_lock);
 
     int idx = ip_addr % ARP_CACHE_SIZE;
@@ -42,9 +42,9 @@ int arp_cache_add(uint32_t ip_addr, struct rte_ether_addr *mac_addr) {
     arp_cache[idx].timestamp = rte_rdtsc();
     arp_cache[idx].valid = 1;
 
-    ip_to_str(rte_cpu_to_be_32(ip_addr), ip_buf, sizeof(ip_buf));
+    ip_to_str(rte_cpu_to_be_32(ip_addr), buf, sizeof(buf));
     LOG_DEBUGF("ARP cache added: IP=%s -> MAC=%02x:%02x:%02x:%02x:%02x:%02x",
-               ip_buf,
+               buf,
                mac_addr->addr_bytes[0], mac_addr->addr_bytes[1],
                mac_addr->addr_bytes[2], mac_addr->addr_bytes[3],
                mac_addr->addr_bytes[4], mac_addr->addr_bytes[5]);
@@ -106,15 +106,15 @@ static int send_arp_request(uint32_t target_ip, uint16_t port, struct rte_mempoo
         return -1;
     }
 
-    char ip_buf[32];
-    ip_to_str(rte_cpu_to_be_32(target_ip), ip_buf, sizeof(ip_buf));
-    LOG_DEBUGF("ARP request sent for IP %s", ip_buf);
+    char tmp[32];
+    ip_to_str(rte_cpu_to_be_32(target_ip), tmp, sizeof(tmp));
+    LOG_DEBUGF("ARP request sent for IP %s", tmp);
     return 0;
 }
 
 static int resolve_next_hop(uint32_t dst_ip_be, uint16_t out_port,
                             struct rte_ether_addr *out_mac, int *cache_hit) {
-    char ip_buf[32];
+    char addr[32];
     uint32_t dst_ip = rte_be_to_cpu_32(dst_ip_be);
 
     if (arp_cache_lookup(dst_ip, out_mac) == 0) {
@@ -123,18 +123,16 @@ static int resolve_next_hop(uint32_t dst_ip_be, uint16_t out_port,
     }
     if (cache_hit) *cache_hit = 0;
 
-    ip_to_str(dst_ip_be, ip_buf, sizeof(ip_buf));
-    LOG_WARNF("ARP cache miss for destination IP %s, using default gateway", ip_buf);
+    ip_to_str(dst_ip_be, addr, sizeof(addr));
+    LOG_WARNF("ARP cache miss for destination IP %s, using default gateway", addr);
 
-    /* ARP miss 时回退默认网关 MAC，部署时需替换为真实地址 */
     struct rte_ether_addr def_gw_mac = DEFAULT_GW_MAC;
     rte_ether_addr_copy(&def_gw_mac, out_mac);
 
-    /* 节流 ARP 请求：5 秒内只触发一次，避免 miss 风暴 */
     static uint64_t last_arp_time = 0;
-    uint64_t current_time = rte_rdtsc();
-    if (current_time - last_arp_time > rte_get_timer_hz() * 5) {
-        last_arp_time = current_time;
+    uint64_t now = rte_rdtsc();
+    if (now - last_arp_time > rte_get_timer_hz() * 5) {
+        last_arp_time = now;
         return 1;
     }
     return 0;
@@ -144,13 +142,13 @@ struct rte_mbuf* wan_fwd_roce(struct rte_mbuf *m, uint16_t out_port) {
     struct rte_ether_hdr *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
     struct rte_ipv4_hdr *ip = (struct rte_ipv4_hdr *)(eth + 1);
     struct rte_udp_hdr *udp = (struct rte_udp_hdr *)(ip + 1);
-    char src_ip_buf[32], dst_ip_buf[32];
+    char src[32], dst[32];
 
-    ip_to_str(ip->src_addr, src_ip_buf, sizeof(src_ip_buf));
-    ip_to_str(ip->dst_addr, dst_ip_buf, sizeof(dst_ip_buf));
+    ip_to_str(ip->src_addr, src, sizeof(src));
+    ip_to_str(ip->dst_addr, dst, sizeof(dst));
     LOG_DEBUGF("Forwarding RoCEv2 packet to WAN: src=%s:%u, dst=%s:%u",
-               src_ip_buf, rte_be_to_cpu_16(udp->src_port),
-               dst_ip_buf, rte_be_to_cpu_16(udp->dst_port));
+               src, rte_be_to_cpu_16(udp->src_port),
+               dst, rte_be_to_cpu_16(udp->dst_port));
 
     uint32_t original_dst_ip = ip->dst_addr;
 
@@ -176,11 +174,11 @@ struct rte_mbuf* wan_fwd_roce(struct rte_mbuf *m, uint16_t out_port) {
 int wan_fwd_passthrough(struct rte_mbuf *m, uint16_t out_port) {
     struct rte_ether_hdr *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
     struct rte_ipv4_hdr *ip = (struct rte_ipv4_hdr *)(eth + 1);
-    char src_ip_buf[32], dst_ip_buf[32];
+    char s[32], d[32];
 
-    ip_to_str(ip->src_addr, src_ip_buf, sizeof(src_ip_buf));
-    ip_to_str(ip->dst_addr, dst_ip_buf, sizeof(dst_ip_buf));
-    LOG_DEBUGF("Passthrough forward to WAN: src=%s, dst=%s", src_ip_buf, dst_ip_buf);
+    ip_to_str(ip->src_addr, s, sizeof(s));
+    ip_to_str(ip->dst_addr, d, sizeof(d));
+    LOG_DEBUGF("Passthrough forward to WAN: src=%s, dst=%s", s, d);
 
     struct rte_ether_addr next_hop_mac;
     int need_arp = resolve_next_hop(ip->dst_addr, out_port, &next_hop_mac, NULL);

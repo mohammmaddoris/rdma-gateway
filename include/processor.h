@@ -1,9 +1,8 @@
 /*
- * processor.h - 单 lcore 处理上下文，串联 QP/ARQ/JB/CC/Stats
+ * per-lcore processor context
  *
- * 每个 lcore 持有独立的 processor_context_t，避免跨核共享。
- * 流到 lcore 的映射由 proc_flow_to_*_lcore 完成，保证同一 QPN
- * 始终落在同一核上，从而状态机无需加跨核锁。
+ * each lcore holds its own processor_context_t, flow-to-lcore mapping
+ * pins same QPN to same core so state machines don't need cross-core locks.
  */
 #ifndef _PROCESSOR_H_
 #define _PROCESSOR_H_

@@ -1,5 +1,5 @@
 /*
- * peer_manager.c - 子网到对端网关映射实现
+ * subnet-to-peer gateway mapping
  */
 #include "peer_manager.h"
 #include "log.h"
@@ -21,11 +21,11 @@ int pm_add(peer_manager_t *pm, uint32_t subnet, uint32_t subnet_mask, uint32_t p
     memset(&pm->peers[pm->peer_count].peer_mac, 0, sizeof(struct rte_ether_addr));
     pm->peer_count++;
 
-    char subnet_buf[32], peer_buf[32];
-    ip_to_str(subnet, subnet_buf, sizeof(subnet_buf));
-    ip_to_str(peer_ip, peer_buf, sizeof(peer_buf));
+    char s[32], p[32];
+    ip_to_str(subnet, s, sizeof(s));
+    ip_to_str(peer_ip, p, sizeof(p));
     LOG_INFOF("Added peer mapping: subnet=%s/%u -> peer=%s",
-              subnet_buf, __builtin_popcount(subnet_mask), peer_buf);
+              s, __builtin_popcount(subnet_mask), p);
 
     return 0;
 }
@@ -41,47 +41,47 @@ int pm_set_default(peer_manager_t *pm, uint32_t peer_ip) {
 }
 
 uint32_t pm_lookup(peer_manager_t *pm, uint32_t dst_ip) {
-    char dst_buf[32], peer_buf[32];
+    char a[32], b[32];
 
     for (uint32_t i = 0; i < pm->peer_count; i++) {
         if ((dst_ip & pm->peers[i].subnet_mask) == pm->peers[i].subnet) {
-            ip_to_str(dst_ip, dst_buf, sizeof(dst_buf));
-            ip_to_str(pm->peers[i].peer_ip, peer_buf, sizeof(peer_buf));
-            LOG_DEBUGF("Peer lookup hit: dst=%s -> peer=%s", dst_buf, peer_buf);
+            ip_to_str(dst_ip, a, sizeof(a));
+            ip_to_str(pm->peers[i].peer_ip, b, sizeof(b));
+            LOG_DEBUGF("Peer lookup hit: dst=%s -> peer=%s", a, b);
             return pm->peers[i].peer_ip;
         }
     }
 
     if (pm->default_peer_ip != 0) {
-        ip_to_str(dst_ip, dst_buf, sizeof(dst_buf));
-        ip_to_str(pm->default_peer_ip, peer_buf, sizeof(peer_buf));
-        LOG_DEBUGF("Peer lookup using default: dst=%s -> default_peer=%s", dst_buf, peer_buf);
+        ip_to_str(dst_ip, a, sizeof(a));
+        ip_to_str(pm->default_peer_ip, b, sizeof(b));
+        LOG_DEBUGF("Peer lookup using default: dst=%s -> default_peer=%s", a, b);
         return pm->default_peer_ip;
     }
 
-    ip_to_str(dst_ip, dst_buf, sizeof(dst_buf));
-    LOG_WARNF("Peer lookup failed: no mapping found for dst=%s", dst_buf);
+    ip_to_str(dst_ip, a, sizeof(a));
+    LOG_WARNF("Peer lookup failed: no mapping found for dst=%s", a);
     return 0;
 }
 
 void pm_dump(peer_manager_t *pm) {
     LOG_INFO("=== Peer Manager Configuration ===");
-    char subnet_buf[32], peer_buf[32];
+    char s[32], p[32];
 
     LOG_INFOF("Total peers: %u", pm->peer_count);
 
     for (uint32_t i = 0; i < pm->peer_count; i++) {
-        ip_to_str(pm->peers[i].subnet, subnet_buf, sizeof(subnet_buf));
-        ip_to_str(pm->peers[i].peer_ip, peer_buf, sizeof(peer_buf));
+        ip_to_str(pm->peers[i].subnet, s, sizeof(s));
+        ip_to_str(pm->peers[i].peer_ip, p, sizeof(p));
         LOG_INFOF("Peer %u: subnet=%s/%u -> peer=%s",
-                  i, subnet_buf,
+                  i, s,
                   __builtin_popcount(pm->peers[i].subnet_mask),
-                  peer_buf);
+                  p);
     }
 
     if (pm->default_peer_ip != 0) {
-        ip_to_str(pm->default_peer_ip, peer_buf, sizeof(peer_buf));
-        LOG_INFOF("Default peer: %s", peer_buf);
+        ip_to_str(pm->default_peer_ip, p, sizeof(p));
+        LOG_INFOF("Default peer: %s", p);
     } else {
         LOG_INFO("No default peer configured");
     }

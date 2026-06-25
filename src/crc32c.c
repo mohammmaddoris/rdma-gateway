@@ -1,5 +1,5 @@
 /*
- * crc32c.c - CRC32C 实现，SSE4.2 硬件优先，软件回退
+ * CRC32C: SSE4.2 hw path, sw fallback
  */
 #include "crc32c.h"
 #include <cpuid.h>

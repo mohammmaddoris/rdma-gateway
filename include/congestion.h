@@ -1,5 +1,5 @@
 /*
- * congestion.h - 基于缓冲区水位线的粗粒度拥塞控制 + CNP 生成
+ * buffer-watermark congestion control + CNP generation
  */
 #ifndef _CONGESTION_H_
 #define _CONGESTION_H_
@@ -34,7 +34,7 @@ typedef struct {
     uint64_t total_cnp_sent;
     uint64_t cnp_by_qp[256];
     uint64_t last_cnp_time;
-    uint8_t congestion_detected;
+    uint8_t congestion_detected;  // bool really, but this works
 } cnp_context_t;
 
 typedef struct {

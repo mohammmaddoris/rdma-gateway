@@ -1,6 +1,5 @@
 /*
- * log.h - 轻量日志接口，支持 stdout + 文件双写
- *
+ * lightweight logging, stdout + optional file
  */
 #ifndef _LOG_H_
 #define _LOG_H_

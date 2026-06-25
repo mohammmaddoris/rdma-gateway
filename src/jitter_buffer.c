@@ -1,5 +1,5 @@
 /*
- * jitter_buffer.c - WRITE 消息重组实现
+ * WRITE message reassembly
  */
 #include "jitter_buffer.h"
 #include "log.h"
@@ -15,7 +15,6 @@ void jb_init(jitter_buffer_t *jb) {
     jb->active_write_count = 0;
 }
 
-/* 按 QPN 查找重组上下文，未命中返回 NULL；调用方需持有 global_lock */
 static jb_write_context_t *jb_find(jitter_buffer_t *jb, uint32_t qpn) {
     for (int i = 0; i < JB_MAX_PENDING_WRITES; i++) {
         if (jb->writes[i].qpn == qpn) {
@@ -88,7 +87,6 @@ int jb_add_seg(jitter_buffer_t *jb, uint32_t qpn, uint32_t psn, uint8_t segment_
     uint32_t expected = write_ctx->expected_psn;
     uint32_t dist = psn_forward_dist(expected, psn);
 
-    /* 乱序：超前到达则标记中间空缺为 WAITING，供 NACK 检测 */
     if (dist == 0) {
         write_ctx->expected_psn = (write_ctx->expected_psn + 1) & 0x00FFFFFF;
     } else if (dist < JB_MAX_SEGMENTS) {

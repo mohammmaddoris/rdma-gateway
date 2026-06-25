@@ -1,8 +1,8 @@
 /*
- * processor.c - 单 lcore 报文处理主逻辑
+ * per-lcore packet processing
  *
- * LAN 侧：识别 RoCE WRITE，伪造 ACK 回注 LAN，并把数据转发到 WAN。
- * WAN 侧：重组 WRITE 段，缺失段发 NACK，收齐后整体下发 LAN。
+ * LAN: identify RoCE WRITE, spoof ACK, forward to WAN
+ * WAN: reassemble WRITE segments, NACK missing, deliver to LAN
  */
 #include "processor.h"
 #include "wan_tunnel.h"
@@ -22,7 +22,6 @@ static uint32_t g_lan_core_count = 1;
 static uint32_t g_wan_core_count = 1;
 
 static uint8_t get_segment_type(uint8_t opcode) {
-    /* WRITE_LAST_IMM 在重组时与 LAST 等价，IMM 数据由网卡处理 */
     switch (opcode) {
         case ROCE_OPCODE_WRITE_FIRST:  return WRITE_SEG_FIRST;
         case ROCE_OPCODE_WRITE_MIDDLE: return WRITE_SEG_MIDDLE;
@@ -75,16 +74,13 @@ static int forge_and_send_ack(struct rte_mbuf *orig_m, struct rte_mempool *pool,
     ack_bth->pad_res = 0;
     ack_bth->dqpn = req_bth->dqpn;
 
-    /* PSN 字段低 8 位在 RoCE 中保留，此处清零；高 24 位为实际 PSN */
     uint32_t psn = rte_be_to_cpu_32(req_bth->psn) & 0x00FFFFFF;
     ack_bth->psn = rte_cpu_to_be_32((psn << 8) | 0x00);
 
-    /* syndrome=0x00 表示正常 ACK；credit=0xFFFF 表示不限制对端信用 */
     ack_aeth->syndrome = 0x00;
     ack_aeth->msn = 0;
     ack_aeth->credit = rte_cpu_to_be_16(0xFFFF);
 
-    /* icrc 覆盖 BTH+AETH，不含以太网/IP/UDP 头 */
     *icrc = rte_cpu_to_be_32(crc32c_calculate((uint8_t*)ack_bth, sizeof(struct roce_bth) + sizeof(struct roce_aeth)));
 
     if (rte_eth_tx_burst(lan_port, 0, &ack_m, 1) == 0) {
@@ -117,7 +113,7 @@ void proc_set_core_counts(uint32_t lan_core_count, uint32_t wan_core_count) {
     LOG_INFOF("cores: lan=%u wan=%u", lan_core_count, wan_core_count);
 }
 
-/* 流哈希：同一流固定到同一 lcore，避免跨核同步 */
+/* flow hash: same flow -> same lcore */
 static inline uint32_t flow_hash(struct rte_ipv4_hdr *ip, struct rte_udp_hdr *udp, uint32_t qpn) {
     uint32_t hash = rte_hash_crc_32b(&ip->src_addr, sizeof(ip->src_addr), 0);
     hash = rte_hash_crc_32b(&ip->dst_addr, sizeof(ip->dst_addr), hash);
@@ -198,6 +194,7 @@ void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
     uint16_t dst_port = rte_be_to_cpu_16(udp_hdr->dst_port);
 
     if (dst_port != 4791) {
+        // TODO: also check for IBoE port (4792) once dual-mode is needed
         stat_inc(&proc->stats, STAT_PKTS_PASSTHROUGH);
         wan_fwd_passthrough(m, wan_port);
         return;
@@ -226,13 +223,11 @@ void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
     stat_inc(&proc->stats, STAT_WRITE_PKTS_PROCESSED);
     stat_inc(&proc->stats, STAT_PKTS_LAN_TO_WAN);
 
-    /* 先伪造 ACK 回注 LAN，释放对端发送缓冲；WAN 可靠性由 ARQ 保证 */
     forge_and_send_ack(m, pool, lan_port, bth);
     stat_inc(&proc->stats, STAT_ACK_SPOOFED_SENT);
 
     struct rte_mbuf *wan_m = wan_fwd_roce(m, wan_port);
 
-    /* ARQ 上下文与 QP 一一对应，此处复用 qpn 做查找 */
     arq_context_t *arq = arq_get_or_create(&proc->arq_mgr, qpn);
     if (arq) {
         arq_send_pkt(arq, wan_m, psn, segment_type);
@@ -338,7 +333,6 @@ void proc_process_wan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
     }
 
     if (jb_is_write_complete(&proc->jitter_buffer, qpn)) {
-        /* 栈上缓冲足够 JB_MAX_SEGMENTS 个指针，避免 static 共享 */
         struct rte_mbuf *segments[JB_MAX_SEGMENTS];
         uint32_t seg_count = 0;
 

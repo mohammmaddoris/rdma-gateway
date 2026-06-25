@@ -1,5 +1,5 @@
 /*
- * stats.c - 计数器实现，原子累加，周期性 dump
+ * atomic counters, periodic dump
  */
 #include "stats.h"
 #include "log.h"

@@ -1,5 +1,5 @@
 /*
- * log.c - 日志后端实现，stdout + 可选文件双写
+ * log backend: stdout + optional file
  */
 #include "log.h"
 #include <string.h>

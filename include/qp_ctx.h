@@ -1,5 +1,5 @@
 /*
- * qp_ctx.h - QP 上下文表，以 QPN 为键的定长注册表
+ * QP context table, keyed by QPN
  */
 #ifndef _QP_CTX_H_
 #define _QP_CTX_H_

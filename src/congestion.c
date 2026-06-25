@@ -1,5 +1,5 @@
 /*
- * congestion.c - 拥塞控制实现
+ * congestion control
  */
 #include "congestion.h"
 #include "wan_tunnel.h"
@@ -63,7 +63,6 @@ struct rte_mbuf* cc_build_cnp(congestion_control_t *cc, uint32_t qpn, struct rte
     size_t cnp_size = sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) +
                      sizeof(struct rte_udp_hdr) + sizeof(struct roce_cnp_header);
 
-    /* CNP 报文很小，append 失败基本不可能，简化处理 */
     char *data = rte_pktmbuf_append(m, cnp_size);
     if (!data) {
         rte_pktmbuf_free(m);

@@ -1,5 +1,5 @@
 /*
- * qp_ctx.c - QP 上下文表
+ * QP context table
  */
 #include "qp_ctx.h"
 #include "log.h"

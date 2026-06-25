@@ -1,5 +1,6 @@
 /*
- * main.c - RDMA Gateway 入口：EAL 初始化、端口配置、lcore 调度
+ * RDMA Gateway entry point
+ * EAL init, port config, lcore dispatch
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -218,6 +219,7 @@ static int lan_main_loop(void *arg) {
                     if (target_lcore == lcore_id) {
                         proc_process_lan_rx(proc, m, lan_port, wan_port, pool);
                     } else {
+                        // FIXME: forward to target lcore's ring instead of drop
                         rte_pktmbuf_free(m);
                     }
                 }
@@ -263,6 +265,7 @@ static int wan_main_loop(void *arg) {
                     if (target_lcore == lcore_id) {
                         proc_process_wan_rx(proc, m, lan_port, wan_port, pool);
                     } else {
+                        // FIXME: cross-core forwarding not implemented
                         rte_pktmbuf_free(m);
                     }
                 }
@@ -423,7 +426,6 @@ int main(int argc, char *argv[]) {
     ip_to_str(wan_tunnel_src_ip, ip_buf, sizeof(ip_buf));
     LOG_INFOF("WAN tunnel source IP: %s", ip_buf);
 
-    /* 强制 1G 大页，避免 2M 页 TLB 抖动 */
     uint64_t hugepage_size = rte_mem_get_dma_pagesize();
     if (hugepage_size != RTE_PGSIZE_1G) {
         LOG_ERRORF("1G HugePages not configured! Current page size: %lu bytes", hugepage_size);

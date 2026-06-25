@@ -1,5 +1,5 @@
 /*
- * arq.c - ARQ 重传层实现
+ * ARQ retransmit layer
  */
 #include "arq.h"
 #include "log.h"
@@ -19,7 +19,6 @@ void arq_mgr_init(arq_manager_t *mgr) {
     rte_spinlock_init(&mgr->global_lock);
 }
 
-/* 按 QPN 在 contexts 表中查找，未命中返回 NULL；调用方需持有 global_lock */
 static arq_context_t *arq_find(arq_manager_t *mgr, uint32_t qpn) {
     for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
         if (mgr->contexts[i].qpn == qpn) {
@@ -90,7 +89,6 @@ int arq_send_pkt(arq_context_t *arq, struct rte_mbuf *m, uint32_t psn, uint8_t s
 int arq_handle_ack(arq_context_t *arq, uint32_t ack_psn) {
     rte_spinlock_lock(&arq->lock);
 
-    /* 累积 ACK：释放 send_base 起、PSN 不晚于 ack_psn 的所有在途报文 */
     while (arq->send_base < arq->send_next) {
         uint32_t idx = arq->send_base % WINDOW_SIZE;
         uint32_t diff = psn_forward_dist(arq->send_window[idx].psn, ack_psn);
@@ -187,7 +185,6 @@ int arq_parse_ctrl_msg(struct rte_mbuf *m, arq_control_msg_t *msg) {
 }
 
 int arq_handle_nack(arq_context_t *arq, uint32_t nack_psn, uint16_t wan_port) {
-    /* NACK: 重传 nack_psn 及之前的 in-flight 报文 */
     rte_spinlock_lock(&arq->lock);
     uint32_t retrans_count = 0;
     uint32_t retrans_idx[MAX_RETX_BURST];

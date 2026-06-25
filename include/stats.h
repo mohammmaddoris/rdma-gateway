@@ -1,5 +1,5 @@
 /*
- * stats.h - 网关运行计数器，__sync 原子累加，多 lcore 安全
+ * gateway runtime counters, __sync atomic, multi-lcore safe
  */
 #ifndef _STATS_H_
 #define _STATS_H_

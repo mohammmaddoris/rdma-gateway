@@ -1,6 +1,5 @@
 /*
- * wan_tunnel.h - WAN 侧报文转发与 ARP 缓存
- *
+ * WAN-side forwarding & ARP cache
  */
 #ifndef _WAN_TUNNEL_H_
 #define _WAN_TUNNEL_H_
@@ -21,7 +20,7 @@ int wan_fwd_passthrough(struct rte_mbuf *m, uint16_t out_port);
 int wan_prepare_for_lan(struct rte_mbuf *m);
 uint32_t wan_get_peer_ip(uint32_t dst_ip);
 
-/* 填充以太网之上的 IPv4+UDP 头：地址与端口为网络字节序，长度为主机序 */
+/* build IPv4+UDP header above ethernet. addr/port are network byte order, lengths host order */
 void build_ipv4_udp(struct rte_ipv4_hdr *ip, struct rte_udp_hdr *udp,
                     uint32_t src_be, uint32_t dst_be,
                     uint16_t sport_be, uint16_t dport_be,

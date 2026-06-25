@@ -1,8 +1,7 @@
 /*
- * arq.h - 可选的 ARQ 重传层，运行在 WAN 之上补偿丢包
+ * ARQ retransmit layer over WAN
  *
- * 控制报文走 UDP 4792，与 RoCEv2 数据流(4791)分离。
- * 每个 QPN 一个 arq_context_t，由 arq_manager_t 统一管理。
+ * control messages on UDP 4792, separate from RoCEv2 data (4791)
  */
 #ifndef _ARQ_H_
 #define _ARQ_H_

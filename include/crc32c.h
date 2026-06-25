@@ -1,5 +1,5 @@
 /*
- * crc32c.h - CRC32C (Castagnoli 多项式) 计算，优先走 SSE4.2 硬件指令
+ * CRC32C (Castagnoli), SSE4.2 hw if available
  */
 #ifndef _CRC32C_H_
 #define _CRC32C_H_
