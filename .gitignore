@@ -1,0 +1,4 @@
+*.o
+*.diff
+*.patch
+/rdma_gateway

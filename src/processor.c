@@ -63,21 +63,10 @@ static int forge_and_send_ack(struct rte_mbuf *orig_m, struct rte_mempool *pool,
     rte_ether_addr_copy(&orig_eth->d_addr, &ack_eth->s_addr);
     ack_eth->ether_type = orig_eth->ether_type;
 
-    ack_ip->version_ihl = orig_ip->version_ihl;
-    ack_ip->type_of_service = orig_ip->type_of_service;
-    ack_ip->total_length = rte_cpu_to_be_16(sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_udp_hdr) + sizeof(struct roce_bth) + sizeof(struct roce_aeth) + 4);
-    ack_ip->packet_id = 0;
-    ack_ip->fragment_offset = 0;
-    ack_ip->time_to_live = 64;
-    ack_ip->next_proto_id = IPPROTO_UDP;
-    ack_ip->src_addr = orig_ip->dst_addr;
-    ack_ip->dst_addr = orig_ip->src_addr;
-    ack_ip->hdr_checksum = 0;
-
-    ack_udp->src_port = orig_udp->dst_port;
-    ack_udp->dst_port = orig_udp->src_port;
-    ack_udp->dgram_len = rte_cpu_to_be_16(sizeof(struct rte_udp_hdr) + sizeof(struct roce_bth) + sizeof(struct roce_aeth) + 4);
-    ack_udp->dgram_cksum = 0;
+    build_ipv4_udp(ack_ip, ack_udp, orig_ip->dst_addr, orig_ip->src_addr,
+                   orig_udp->dst_port, orig_udp->src_port,
+                   sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_udp_hdr) + sizeof(struct roce_bth) + sizeof(struct roce_aeth) + 4,
+                   sizeof(struct rte_udp_hdr) + sizeof(struct roce_bth) + sizeof(struct roce_aeth) + 4);
 
     ack_bth->opcode = ROCE_OPCODE_ACK;
     ack_bth->tver_pad = req_bth->tver_pad;
@@ -163,7 +152,7 @@ static void check_congestion(processor_context_t *proc, uint16_t lan_port, struc
     if (proc->congestion_ctrl.congestion_detected) {
         for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
             if (proc->arq_mgr.contexts[i].qpn != 0) {
-                if (cc_should_send_cnp(&proc->congestion_ctrl, proc->arq_mgr.contexts[i].qpn)) {
+                if (cc_should_send_cnp(&proc->congestion_ctrl)) {
                     struct rte_mbuf *cnp = cc_build_cnp(&proc->congestion_ctrl, proc->arq_mgr.contexts[i].qpn, pool);
                     if (cnp) {
                         if (rte_eth_tx_burst(lan_port, 0, &cnp, 1) == 0) {

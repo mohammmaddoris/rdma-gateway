@@ -19,14 +19,23 @@ void arq_mgr_init(arq_manager_t *mgr) {
     rte_spinlock_init(&mgr->global_lock);
 }
 
+/* 按 QPN 在 contexts 表中查找，未命中返回 NULL；调用方需持有 global_lock */
+static arq_context_t *arq_find(arq_manager_t *mgr, uint32_t qpn) {
+    for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
+        if (mgr->contexts[i].qpn == qpn) {
+            return &mgr->contexts[i];
+        }
+    }
+    return NULL;
+}
+
 arq_context_t* arq_get_or_create(arq_manager_t *mgr, uint32_t qpn) {
     rte_spinlock_lock(&mgr->global_lock);
 
-    for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
-        if (mgr->contexts[i].qpn == qpn) {
-            rte_spinlock_unlock(&mgr->global_lock);
-            return &mgr->contexts[i];
-        }
+    arq_context_t *ctx = arq_find(mgr, qpn);
+    if (ctx) {
+        rte_spinlock_unlock(&mgr->global_lock);
+        return ctx;
     }
 
     for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
@@ -47,16 +56,9 @@ arq_context_t* arq_get_or_create(arq_manager_t *mgr, uint32_t qpn) {
 
 arq_context_t* arq_lookup(arq_manager_t *mgr, uint32_t qpn) {
     rte_spinlock_lock(&mgr->global_lock);
-
-    for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
-        if (mgr->contexts[i].qpn == qpn) {
-            rte_spinlock_unlock(&mgr->global_lock);
-            return &mgr->contexts[i];
-        }
-    }
-
+    arq_context_t *ctx = arq_find(mgr, qpn);
     rte_spinlock_unlock(&mgr->global_lock);
-    return NULL;
+    return ctx;
 }
 
 int arq_send_pkt(arq_context_t *arq, struct rte_mbuf *m, uint32_t psn, uint8_t segment_type) {
@@ -138,21 +140,10 @@ struct rte_mbuf* arq_build_ctrl_msg(uint32_t qpn, uint8_t type, uint32_t psn,
     rte_ether_addr_copy(&dst_mac, &eth->d_addr);
     eth->ether_type = rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4);
 
-    ip->version_ihl = 0x45;
-    ip->type_of_service = 0;
-    ip->total_length = rte_cpu_to_be_16(sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_udp_hdr) + sizeof(arq_control_msg_t));
-    ip->packet_id = 0;
-    ip->fragment_offset = 0;
-    ip->time_to_live = 64;
-    ip->next_proto_id = IPPROTO_UDP;
-    ip->src_addr = wan_tunnel_src_ip;
-    ip->dst_addr = dst_ip;
-    ip->hdr_checksum = 0;
-
-    udp->src_port = rte_cpu_to_be_16(ARQ_CTRL_PORT);
-    udp->dst_port = rte_cpu_to_be_16(ARQ_CTRL_PORT);
-    udp->dgram_len = rte_cpu_to_be_16(sizeof(struct rte_udp_hdr) + sizeof(arq_control_msg_t));
-    udp->dgram_cksum = 0;
+    build_ipv4_udp(ip, udp, wan_tunnel_src_ip, dst_ip,
+                   rte_cpu_to_be_16(ARQ_CTRL_PORT), rte_cpu_to_be_16(ARQ_CTRL_PORT),
+                   sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_udp_hdr) + sizeof(arq_control_msg_t),
+                   sizeof(struct rte_udp_hdr) + sizeof(arq_control_msg_t));
 
     msg->magic = rte_cpu_to_be_32(ARQ_MAGIC);
     msg->type = type;

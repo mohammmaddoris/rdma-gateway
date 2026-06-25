@@ -40,7 +40,7 @@ int cc_check_buffer(congestion_control_t *cc, uint32_t used_buffers, uint32_t to
     return cc->congestion_detected;
 }
 
-int cc_should_send_cnp(congestion_control_t *cc, uint32_t qpn) {
+int cc_should_send_cnp(congestion_control_t *cc) {
     if (!cc->congestion_detected) {
         return 0;
     }
@@ -78,18 +78,10 @@ struct rte_mbuf* cc_build_cnp(congestion_control_t *cc, uint32_t qpn, struct rte
     memset(eth, 0, cnp_size);
     eth->ether_type = rte_cpu_to_be_16(CNP_ETHERTYPE);
 
-    ip->version_ihl = 0x45;
-    ip->total_length = rte_cpu_to_be_16(sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_udp_hdr) + sizeof(struct roce_cnp_header));
-    ip->time_to_live = 64;
-    ip->next_proto_id = IPPROTO_UDP;
-    ip->src_addr = cc->cnp_src_ip;
-    ip->dst_addr = cc->cnp_dst_ip;
-    ip->hdr_checksum = 0;
-
-    udp->src_port = rte_cpu_to_be_16(4791);
-    udp->dst_port = rte_cpu_to_be_16(4791);
-    udp->dgram_len = rte_cpu_to_be_16(sizeof(struct rte_udp_hdr) + sizeof(struct roce_cnp_header));
-    udp->dgram_cksum = 0;
+    build_ipv4_udp(ip, udp, cc->cnp_src_ip, cc->cnp_dst_ip,
+                   rte_cpu_to_be_16(4791), rte_cpu_to_be_16(4791),
+                   sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_udp_hdr) + sizeof(struct roce_cnp_header),
+                   sizeof(struct rte_udp_hdr) + sizeof(struct roce_cnp_header));
 
     cnp->mgmt_class = 0x06;
     cnp->ver_min_ver = 0x01;

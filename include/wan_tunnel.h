@@ -8,6 +8,7 @@
 #include <rte_mbuf.h>
 #include <rte_ether.h>
 #include <rte_ip.h>
+#include <rte_udp.h>
 #include <rte_mempool.h>
 
 #define WAN_UDP_PORT 4791
@@ -19,6 +20,12 @@ struct rte_mbuf* wan_fwd_roce(struct rte_mbuf *m, uint16_t out_port);
 int wan_fwd_passthrough(struct rte_mbuf *m, uint16_t out_port);
 int wan_prepare_for_lan(struct rte_mbuf *m);
 uint32_t wan_get_peer_ip(uint32_t dst_ip);
+
+/* 填充以太网之上的 IPv4+UDP 头：地址与端口为网络字节序，长度为主机序 */
+void build_ipv4_udp(struct rte_ipv4_hdr *ip, struct rte_udp_hdr *udp,
+                    uint32_t src_be, uint32_t dst_be,
+                    uint16_t sport_be, uint16_t dport_be,
+                    uint16_t ip_total_len, uint16_t udp_len);
 
 void arp_cache_init(void);
 int arp_cache_add(uint32_t ip_addr, struct rte_ether_addr *mac_addr);

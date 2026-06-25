@@ -15,6 +15,16 @@ void jb_init(jitter_buffer_t *jb) {
     jb->active_write_count = 0;
 }
 
+/* 按 QPN 查找重组上下文，未命中返回 NULL；调用方需持有 global_lock */
+static jb_write_context_t *jb_find(jitter_buffer_t *jb, uint32_t qpn) {
+    for (int i = 0; i < JB_MAX_PENDING_WRITES; i++) {
+        if (jb->writes[i].qpn == qpn) {
+            return &jb->writes[i];
+        }
+    }
+    return NULL;
+}
+
 jb_write_context_t* jb_get_or_create_write(jitter_buffer_t *jb, uint32_t qpn, uint32_t first_psn) {
     rte_spinlock_lock(&jb->global_lock);
 
@@ -46,14 +56,7 @@ jb_write_context_t* jb_get_or_create_write(jitter_buffer_t *jb, uint32_t qpn, ui
 int jb_add_seg(jitter_buffer_t *jb, uint32_t qpn, uint32_t psn, uint8_t segment_type, struct rte_mbuf *m) {
     rte_spinlock_lock(&jb->global_lock);
 
-    jb_write_context_t *write_ctx = NULL;
-    for (int i = 0; i < JB_MAX_PENDING_WRITES; i++) {
-        if (jb->writes[i].qpn == qpn) {
-            write_ctx = &jb->writes[i];
-            break;
-        }
-    }
-
+    jb_write_context_t *write_ctx = jb_find(jb, qpn);
     if (!write_ctx) {
         write_ctx = jb_get_or_create_write(jb, qpn, psn);
         if (!write_ctx) {
@@ -110,16 +113,11 @@ int jb_add_seg(jitter_buffer_t *jb, uint32_t qpn, uint32_t psn, uint8_t segment_
 int jb_is_write_complete(jitter_buffer_t *jb, uint32_t qpn) {
     rte_spinlock_lock(&jb->global_lock);
 
-    for (int i = 0; i < JB_MAX_PENDING_WRITES; i++) {
-        if (jb->writes[i].qpn == qpn) {
-            int complete = jb->writes[i].write_complete;
-            rte_spinlock_unlock(&jb->global_lock);
-            return complete;
-        }
-    }
+    jb_write_context_t *write_ctx = jb_find(jb, qpn);
+    int complete = write_ctx ? write_ctx->write_complete : 0;
 
     rte_spinlock_unlock(&jb->global_lock);
-    return 0;
+    return complete;
 }
 
 int jb_get_ordered_segs(jitter_buffer_t *jb, uint32_t qpn, struct rte_mbuf **out, uint32_t *count) {
@@ -127,14 +125,7 @@ int jb_get_ordered_segs(jitter_buffer_t *jb, uint32_t qpn, struct rte_mbuf **out
 
     rte_spinlock_lock(&jb->global_lock);
 
-    jb_write_context_t *write_ctx = NULL;
-    for (int i = 0; i < JB_MAX_PENDING_WRITES; i++) {
-        if (jb->writes[i].qpn == qpn) {
-            write_ctx = &jb->writes[i];
-            break;
-        }
-    }
-
+    jb_write_context_t *write_ctx = jb_find(jb, qpn);
     if (!write_ctx) {
         rte_spinlock_unlock(&jb->global_lock);
         return -1;
@@ -179,18 +170,16 @@ int jb_get_ordered_segs(jitter_buffer_t *jb, uint32_t qpn, struct rte_mbuf **out
 void jb_remove_write(jitter_buffer_t *jb, uint32_t qpn) {
     rte_spinlock_lock(&jb->global_lock);
 
-    for (int i = 0; i < JB_MAX_PENDING_WRITES; i++) {
-        if (jb->writes[i].qpn == qpn) {
-            for (int j = 0; j < JB_MAX_SEGMENTS; j++) {
-                if (jb->writes[i].segments[j].mbuf) {
-                    rte_pktmbuf_free(jb->writes[i].segments[j].mbuf);
-                    jb->writes[i].segments[j].mbuf = NULL;
-                }
+    jb_write_context_t *write_ctx = jb_find(jb, qpn);
+    if (write_ctx) {
+        for (int j = 0; j < JB_MAX_SEGMENTS; j++) {
+            if (write_ctx->segments[j].mbuf) {
+                rte_pktmbuf_free(write_ctx->segments[j].mbuf);
+                write_ctx->segments[j].mbuf = NULL;
             }
-            memset(&jb->writes[i], 0, sizeof(jb_write_context_t));
-            jb->active_write_count--;
-            break;
         }
+        memset(write_ctx, 0, sizeof(jb_write_context_t));
+        jb->active_write_count--;
     }
 
     rte_spinlock_unlock(&jb->global_lock);
@@ -199,14 +188,7 @@ void jb_remove_write(jitter_buffer_t *jb, uint32_t qpn) {
 uint32_t jb_check_missing(jitter_buffer_t *jb, uint32_t qpn) {
     rte_spinlock_lock(&jb->global_lock);
 
-    jb_write_context_t *write_ctx = NULL;
-    for (int i = 0; i < JB_MAX_PENDING_WRITES; i++) {
-        if (jb->writes[i].qpn == qpn) {
-            write_ctx = &jb->writes[i];
-            break;
-        }
-    }
-
+    jb_write_context_t *write_ctx = jb_find(jb, qpn);
     if (!write_ctx) {
         rte_spinlock_unlock(&jb->global_lock);
         return 0;

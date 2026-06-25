@@ -14,7 +14,7 @@
 extern peer_manager_t g_peer_manager;
 
 #define ARP_CACHE_SIZE 128
-#define DEFAULT_GW_MAC {{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}}
+#define DEFAULT_GW_MAC {{0x02, 0x1a, 0xc5, 0x4b, 0x7e, 0x90}}
 
 typedef struct {
     uint32_t ip_addr;
@@ -216,4 +216,25 @@ int wan_prepare_for_lan(struct rte_mbuf *m) {
 
 uint32_t wan_get_peer_ip(uint32_t dst_ip) {
     return pm_lookup(&g_peer_manager, dst_ip);
+}
+
+void build_ipv4_udp(struct rte_ipv4_hdr *ip, struct rte_udp_hdr *udp,
+                    uint32_t src_be, uint32_t dst_be,
+                    uint16_t sport_be, uint16_t dport_be,
+                    uint16_t ip_total_len, uint16_t udp_len) {
+    ip->version_ihl = 0x45;
+    ip->type_of_service = 0;
+    ip->total_length = rte_cpu_to_be_16(ip_total_len);
+    ip->packet_id = 0;
+    ip->fragment_offset = 0;
+    ip->time_to_live = 64;
+    ip->next_proto_id = IPPROTO_UDP;
+    ip->src_addr = src_be;
+    ip->dst_addr = dst_be;
+    ip->hdr_checksum = 0;
+
+    udp->src_port = sport_be;
+    udp->dst_port = dport_be;
+    udp->dgram_len = rte_cpu_to_be_16(udp_len);
+    udp->dgram_cksum = 0;
 }
