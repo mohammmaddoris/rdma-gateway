@@ -18,7 +18,7 @@
 #include "stats.h"
 
 #define MAX_LCORES RTE_MAX_LCORE
-#define CONGESTION_CHECK_INTERVAL 100  // 每发送100个包检查一次拥塞
+#define CONGESTION_CHECK_INTERVAL 5  // run congestion check every N processed packets
 
 typedef struct {
     qp_manager_t qp_mgr;
@@ -27,8 +27,8 @@ typedef struct {
     congestion_control_t congestion_ctrl;
     gateway_stats_t stats;
     uint32_t lcore_id;
-    uint8_t is_lan_core;  // 1 = LAN侧核, 0 = WAN侧核
-    uint32_t packet_counter;  // 用于拥塞检查的包计数器
+    uint8_t is_lan_core;  // 1 = LAN core, 0 = WAN core
+    uint32_t packet_counter;  // drives the periodic congestion check
 } processor_context_t;
 
 typedef struct {

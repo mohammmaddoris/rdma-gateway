@@ -140,28 +140,40 @@ static uint32_t calculate_arq_window_usage(processor_context_t *proc) {
     return used_buffers;
 }
 
+/* send one CNP for a flow, paced to at most one per cnp_timer_cycles (DCQCN) */
+static void cnp_emit(processor_context_t *proc, qp_context_t *qp, uint16_t port, struct rte_mempool *pool, uint64_t now) {
+    if (qp->notify_ip == 0)
+        return;
+    if (!cc_cnp_due(&proc->congestion_ctrl, qp->last_cnp_tsc, now))
+        return;
+
+    struct rte_mbuf *cnp = cc_build_cnp(&proc->congestion_ctrl, qp->qpn, qp->notify_ip, pool);
+    if (!cnp)
+        return;
+
+    if (rte_eth_tx_burst(port, 0, &cnp, 1) == 0) {
+        rte_pktmbuf_free(cnp);
+        return;
+    }
+    qp->last_cnp_tsc = now;
+    stat_inc(&proc->stats, STAT_CNP_SENT);
+    LOG_DEBUGF("CNP sent for QPN 0x%x", qp->qpn);
+}
+
 static void check_congestion(processor_context_t *proc, uint16_t lan_port, struct rte_mempool *pool) {
     uint32_t used_buffers = calculate_arq_window_usage(proc);
     uint32_t total_buffers = MAX_QP_CTX * WINDOW_SIZE;
-    
+
     cc_check_buffer(&proc->congestion_ctrl, used_buffers, total_buffers);
-    if (proc->congestion_ctrl.congestion_detected) {
-        for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
-            if (proc->arq_mgr.contexts[i].qpn != 0) {
-                if (cc_should_send_cnp(&proc->congestion_ctrl)) {
-                    struct rte_mbuf *cnp = cc_build_cnp(&proc->congestion_ctrl, proc->arq_mgr.contexts[i].qpn, pool);
-                    if (cnp) {
-                        if (rte_eth_tx_burst(lan_port, 0, &cnp, 1) == 0) {
-                            LOG_WARN("Failed to send CNP");
-                            rte_pktmbuf_free(cnp);
-                        } else {
-                            LOG_DEBUGF("CNP sent for QPN 0x%x", proc->arq_mgr.contexts[i].qpn);
-                            stat_inc(&proc->stats, STAT_CNP_SENT);
-                        }
-                    }
-                }
-            }
-        }
+    if (!proc->congestion_ctrl.congestion_detected)
+        return;
+
+    /* watermark trigger, but every flow's CNP still goes through the DCQCN pacer */
+    uint64_t now = rte_rdtsc();
+    for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
+        qp_context_t *qp = &proc->qp_mgr.qps[i];
+        if (qp->active)
+            cnp_emit(proc, qp, lan_port, pool, now);
     }
 }
 
@@ -219,6 +231,10 @@ void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
         stat_inc(&proc->stats, STAT_PKTS_DROPPED);
         return;
     }
+
+    qp_ctx->notify_ip = ip_hdr->src_addr;
+    if ((ip_hdr->type_of_service & 0x3) == 0x3)   // ECN CE -> DCQCN CNP back to sender
+        cnp_emit(proc, qp_ctx, lan_port, pool, rte_rdtsc());
 
     stat_inc(&proc->stats, STAT_WRITE_PKTS_PROCESSED);
     stat_inc(&proc->stats, STAT_PKTS_LAN_TO_WAN);

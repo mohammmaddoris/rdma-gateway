@@ -8,13 +8,14 @@
 #include <stdint.h>
 #include <rte_byteorder.h>
 
-/* RoCEv2 OpCode 定义 */
+/* RoCEv2 OpCode definitions */
 #define ROCE_OPCODE_WRITE_FIRST     0x0A
 #define ROCE_OPCODE_WRITE_MIDDLE    0x0B
 #define ROCE_OPCODE_WRITE_LAST      0x0C
 #define ROCE_OPCODE_WRITE_ONLY      0x0D
 #define ROCE_OPCODE_WRITE_LAST_IMM  0x0E
 #define ROCE_OPCODE_ACK             0x11
+#define ROCE_OPCODE_CNP             0x81
 
 /* Base Transport Header, 12 bytes */
 struct roce_bth {

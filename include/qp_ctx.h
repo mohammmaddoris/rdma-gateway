@@ -28,6 +28,8 @@ typedef struct {
     uint32_t qpn;
     rte_spinlock_t lock;
     uint8_t active;
+    uint64_t last_cnp_tsc;   // DCQCN per-flow CNP timer
+    uint32_t notify_ip;      // CNP target = this flow's sender
 } qp_context_t;
 
 typedef struct {
