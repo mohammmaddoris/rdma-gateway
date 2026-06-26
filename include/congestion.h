@@ -35,6 +35,6 @@ typedef struct {
 void cc_init(congestion_control_t *cc, uint32_t high_watermark, uint32_t low_watermark);
 int cc_check_buffer(congestion_control_t *cc, uint32_t used_buffers, uint32_t total_buffers);
 int cc_cnp_due(congestion_control_t *cc, uint64_t last_cnp_tsc, uint64_t now);
-struct rte_mbuf* cc_build_cnp(congestion_control_t *cc, uint32_t qpn, uint32_t dst_ip, struct rte_mempool *pool);
+struct rte_mbuf* cc_build_cnp(congestion_control_t *cc, uint32_t qpn, uint32_t dst_ip, uint16_t pkey, struct rte_mempool *pool);
 
 #endif

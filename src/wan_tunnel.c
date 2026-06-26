@@ -4,6 +4,7 @@
 #include "wan_tunnel.h"
 #include "log.h"
 #include "peer_manager.h"
+#include "crc32c.h"
 #include <rte_ether.h>
 #include <rte_ip.h>
 #include <rte_udp.h>
@@ -235,4 +236,28 @@ void build_ipv4_udp(struct rte_ipv4_hdr *ip, struct rte_udp_hdr *udp,
     udp->dst_port = dport_be;
     udp->dgram_len = rte_cpu_to_be_16(udp_len);
     udp->dgram_cksum = 0;
+}
+
+uint32_t roce_icrc(struct rte_ipv4_hdr *ip, struct rte_udp_hdr *udp,
+                   void *bth, size_t bth_payload_len) {
+    uint8_t *b = bth;
+
+    uint8_t  tos = ip->type_of_service, ttl = ip->time_to_live, b4 = b[4];
+    uint16_t ipck = ip->hdr_checksum, udpck = udp->dgram_cksum;
+    ip->type_of_service = 0xff;
+    ip->time_to_live = 0xff;
+    ip->hdr_checksum = 0xffff;
+    udp->dgram_cksum = 0xffff;
+    b[4] = 0xff;
+
+    uint32_t crc = crc32_le(0xdebb20e3, (uint8_t *)ip,
+                            sizeof(*ip) + sizeof(*udp) + bth_payload_len);
+
+    ip->type_of_service = tos;
+    ip->time_to_live = ttl;
+    ip->hdr_checksum = ipck;
+    udp->dgram_cksum = udpck;
+    b[4] = b4;
+
+    return ~crc;
 }

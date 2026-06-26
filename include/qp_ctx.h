@@ -8,6 +8,7 @@
 #include <rte_mbuf.h>
 #include <rte_timer.h>
 #include <rte_spinlock.h>
+#include <rte_ether.h>
 #include "roce_defs.h"
 
 #define MAX_QP_CTX 1024
@@ -28,8 +29,11 @@ typedef struct {
     uint32_t qpn;
     rte_spinlock_t lock;
     uint8_t active;
-    uint64_t last_cnp_tsc;   // DCQCN per-flow CNP timer
-    uint32_t notify_ip;      // CNP target = this flow's sender
+    uint64_t last_cnp_tsc;   // per-flow CNP timer
+    uint32_t notify_ip;      // CNP dst IP
+    uint16_t pkey;           // echoed in CNP
+    struct rte_ether_addr notify_mac;  // CNP dst
+    struct rte_ether_addr gw_mac;      // CNP src
 } qp_context_t;
 
 typedef struct {

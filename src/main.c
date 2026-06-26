@@ -213,7 +213,7 @@ static int lan_main_loop(void *arg) {
                     struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
                     struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)(ip_hdr + 1);
                     struct roce_bth *bth = (struct roce_bth *)(udp_hdr + 1);
-                    uint32_t qpn = rte_be_to_cpu_32(bth->dqpn) >> 8;
+                    uint32_t qpn = bth_get_qpn(bth);
                     
                     uint32_t target_lcore = proc_flow_to_lan_lcore(ip_hdr, udp_hdr, qpn);
                     if (target_lcore == lcore_id) {
@@ -259,7 +259,7 @@ static int wan_main_loop(void *arg) {
                     struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
                     struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)(ip_hdr + 1);
                     struct roce_bth *bth = (struct roce_bth *)(udp_hdr + 1);
-                    uint32_t qpn = rte_be_to_cpu_32(bth->dqpn) >> 8;
+                    uint32_t qpn = bth_get_qpn(bth);
                     
                     uint32_t target_lcore = proc_flow_to_wan_lcore(ip_hdr, udp_hdr, qpn);
                     if (target_lcore == lcore_id) {

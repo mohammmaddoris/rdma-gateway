@@ -20,13 +20,30 @@
 /* Base Transport Header, 12 bytes */
 struct roce_bth {
     uint8_t  opcode;
-    uint8_t  tver_pad;
+    uint8_t  flags;
     uint16_t pkey;
-    uint8_t  f_b_se_m;
-    uint8_t  pad_res;
-    uint32_t dqpn;          // dest QPN (24 bits) + reserved (8 bits)
-    uint32_t psn;           // PSN (24 bits) + reserved (8 bits)
+    uint8_t  fecn_becn_res;
+    uint8_t  dest_qp[3];     // 24-bit, big-endian
+    uint8_t  ack_res;
+    uint8_t  psn[3];         // 24-bit, big-endian
 } __attribute__((packed));
+
+static inline uint32_t bth_get_qpn(const struct roce_bth *b) {
+    return (b->dest_qp[0] << 16) | (b->dest_qp[1] << 8) | b->dest_qp[2];
+}
+static inline void bth_set_qpn(struct roce_bth *b, uint32_t qpn) {
+    b->dest_qp[0] = qpn >> 16;
+    b->dest_qp[1] = qpn >> 8;
+    b->dest_qp[2] = qpn;
+}
+static inline uint32_t bth_get_psn(const struct roce_bth *b) {
+    return (b->psn[0] << 16) | (b->psn[1] << 8) | b->psn[2];
+}
+static inline void bth_set_psn(struct roce_bth *b, uint32_t psn) {
+    b->psn[0] = psn >> 16;
+    b->psn[1] = psn >> 8;
+    b->psn[2] = psn;
+}
 
 /* ACK Extended Transport Header, 4 bytes */
 struct roce_aeth {

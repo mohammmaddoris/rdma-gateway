@@ -26,6 +26,10 @@ void build_ipv4_udp(struct rte_ipv4_hdr *ip, struct rte_udp_hdr *udp,
                     uint16_t sport_be, uint16_t dport_be,
                     uint16_t ip_total_len, uint16_t udp_len);
 
+/* RoCEv2 ICRC; ip/udp/bth must be contiguous, len = BTH + payload */
+uint32_t roce_icrc(struct rte_ipv4_hdr *ip, struct rte_udp_hdr *udp,
+                   void *bth, size_t bth_payload_len);
+
 void arp_cache_init(void);
 int arp_cache_add(uint32_t ip_addr, struct rte_ether_addr *mac_addr);
 int arp_cache_lookup(uint32_t ip_addr, struct rte_ether_addr *mac_addr);

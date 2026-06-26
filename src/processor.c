@@ -68,20 +68,20 @@ static int forge_and_send_ack(struct rte_mbuf *orig_m, struct rte_mempool *pool,
                    sizeof(struct rte_udp_hdr) + sizeof(struct roce_bth) + sizeof(struct roce_aeth) + 4);
 
     ack_bth->opcode = ROCE_OPCODE_ACK;
-    ack_bth->tver_pad = req_bth->tver_pad;
+    ack_bth->flags = req_bth->flags;
     ack_bth->pkey = req_bth->pkey;
-    ack_bth->f_b_se_m = 0;
-    ack_bth->pad_res = 0;
-    ack_bth->dqpn = req_bth->dqpn;
+    ack_bth->fecn_becn_res = 0;
+    ack_bth->ack_res = 0;
+    bth_set_qpn(ack_bth, bth_get_qpn(req_bth));
 
-    uint32_t psn = rte_be_to_cpu_32(req_bth->psn) & 0x00FFFFFF;
-    ack_bth->psn = rte_cpu_to_be_32((psn << 8) | 0x00);
+    uint32_t psn = bth_get_psn(req_bth);
+    bth_set_psn(ack_bth, psn);
 
     ack_aeth->syndrome = 0x00;
     ack_aeth->msn = 0;
     ack_aeth->credit = rte_cpu_to_be_16(0xFFFF);
 
-    *icrc = rte_cpu_to_be_32(crc32c_calculate((uint8_t*)ack_bth, sizeof(struct roce_bth) + sizeof(struct roce_aeth)));
+    *icrc = rte_cpu_to_be_32(roce_icrc(ack_ip, ack_udp, ack_bth, sizeof(struct roce_bth) + sizeof(struct roce_aeth)));
 
     if (rte_eth_tx_burst(lan_port, 0, &ack_m, 1) == 0) {
         LOG_WARN("Failed to send spoofed ACK to LAN");
@@ -90,7 +90,7 @@ static int forge_and_send_ack(struct rte_mbuf *orig_m, struct rte_mempool *pool,
     }
 
     LOG_DEBUGF("Spoofed ACK sent for QPN: 0x%x, PSN: %u",
-               rte_be_to_cpu_32(ack_bth->dqpn) >> 8, psn);
+               bth_get_qpn(ack_bth), psn);
     return 0;
 }
 
@@ -140,16 +140,19 @@ static uint32_t calculate_arq_window_usage(processor_context_t *proc) {
     return used_buffers;
 }
 
-/* send one CNP for a flow, paced to at most one per cnp_timer_cycles (DCQCN) */
 static void cnp_emit(processor_context_t *proc, qp_context_t *qp, uint16_t port, struct rte_mempool *pool, uint64_t now) {
     if (qp->notify_ip == 0)
         return;
     if (!cc_cnp_due(&proc->congestion_ctrl, qp->last_cnp_tsc, now))
         return;
 
-    struct rte_mbuf *cnp = cc_build_cnp(&proc->congestion_ctrl, qp->qpn, qp->notify_ip, pool);
+    struct rte_mbuf *cnp = cc_build_cnp(&proc->congestion_ctrl, qp->qpn, qp->notify_ip, qp->pkey, pool);
     if (!cnp)
         return;
+
+    struct rte_ether_hdr *eth = rte_pktmbuf_mtod(cnp, struct rte_ether_hdr *);
+    rte_ether_addr_copy(&qp->notify_mac, &eth->d_addr);
+    rte_ether_addr_copy(&qp->gw_mac, &eth->s_addr);
 
     if (rte_eth_tx_burst(port, 0, &cnp, 1) == 0) {
         rte_pktmbuf_free(cnp);
@@ -168,7 +171,6 @@ static void check_congestion(processor_context_t *proc, uint16_t lan_port, struc
     if (!proc->congestion_ctrl.congestion_detected)
         return;
 
-    /* watermark trigger, but every flow's CNP still goes through the DCQCN pacer */
     uint64_t now = rte_rdtsc();
     for (uint32_t i = 0; i < MAX_QP_CTX; i++) {
         qp_context_t *qp = &proc->qp_mgr.qps[i];
@@ -221,8 +223,8 @@ void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
         return;
     }
 
-    uint32_t qpn = rte_be_to_cpu_32(bth->dqpn) >> 8;
-    uint32_t psn = rte_be_to_cpu_32(bth->psn) & 0x00FFFFFF;
+    uint32_t qpn = bth_get_qpn(bth);
+    uint32_t psn = bth_get_psn(bth);
     uint8_t segment_type = get_segment_type(opcode);
 
     qp_context_t *qp_ctx = qp_get_or_create(&proc->qp_mgr, qpn);
@@ -233,7 +235,10 @@ void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
     }
 
     qp_ctx->notify_ip = ip_hdr->src_addr;
-    if ((ip_hdr->type_of_service & 0x3) == 0x3)   // ECN CE -> DCQCN CNP back to sender
+    qp_ctx->pkey = bth->pkey;
+    rte_ether_addr_copy(&eth_hdr->s_addr, &qp_ctx->notify_mac);
+    rte_ether_addr_copy(&eth_hdr->d_addr, &qp_ctx->gw_mac);
+    if ((ip_hdr->type_of_service & 0x3) == 0x3)   // ECN CE -> CNP
         cnp_emit(proc, qp_ctx, lan_port, pool, rte_rdtsc());
 
     stat_inc(&proc->stats, STAT_WRITE_PKTS_PROCESSED);
@@ -317,8 +322,8 @@ void proc_process_wan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
         return;
     }
 
-    uint32_t qpn = rte_be_to_cpu_32(bth->dqpn) >> 8;
-    uint32_t psn = rte_be_to_cpu_32(bth->psn) & 0x00FFFFFF;
+    uint32_t qpn = bth_get_qpn(bth);
+    uint32_t psn = bth_get_psn(bth);
     uint8_t segment_type = get_segment_type(opcode);
 
     stat_inc(&proc->stats, STAT_PKTS_WAN_TO_LAN);

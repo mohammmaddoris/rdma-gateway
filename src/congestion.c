@@ -5,7 +5,6 @@
 #include "wan_tunnel.h"
 #include "log.h"
 #include "roce_defs.h"
-#include "crc32c.h"
 #include <rte_ether.h>
 #include <rte_ip.h>
 #include <rte_udp.h>
@@ -46,12 +45,11 @@ int cc_cnp_due(congestion_control_t *cc, uint64_t last_cnp_tsc, uint64_t now) {
     return (now - last_cnp_tsc) >= cc->cnp_timer_cycles;
 }
 
-struct rte_mbuf* cc_build_cnp(congestion_control_t *cc, uint32_t qpn, uint32_t dst_ip, struct rte_mempool *pool) {
+struct rte_mbuf* cc_build_cnp(congestion_control_t *cc, uint32_t qpn, uint32_t dst_ip, uint16_t pkey, struct rte_mempool *pool) {
     struct rte_mbuf *m = rte_pktmbuf_alloc(pool);
     if (!m)
         return NULL;
 
-    /* RoCEv2 CNP: BTH (opcode 0x81) + 16B reserved + ICRC, over UDP 4791 */
     size_t cnp_size = sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) +
                       sizeof(struct rte_udp_hdr) + sizeof(struct roce_bth) + 16 + 4;
 
@@ -76,11 +74,10 @@ struct rte_mbuf* cc_build_cnp(congestion_control_t *cc, uint32_t qpn, uint32_t d
                    sizeof(struct rte_udp_hdr) + sizeof(struct roce_bth) + 16 + 4);
 
     bth->opcode = ROCE_OPCODE_CNP;
-    bth->pkey = rte_cpu_to_be_16(0xFFFF);
-    bth->dqpn = rte_cpu_to_be_32((qpn & 0x00FFFFFF) << 8);   // same dqpn layout as the WRITE path
-    /* tver_pad / f_b_se_m / pad_res / psn and the 16B payload stay zero (memset) */
+    bth->pkey = pkey;
+    bth_set_qpn(bth, qpn & 0x00FFFFFF);
 
-    *icrc = rte_cpu_to_be_32(crc32c_calculate((uint8_t *)bth, sizeof(struct roce_bth) + 16));
+    *icrc = rte_cpu_to_be_32(roce_icrc(ip, udp, bth, sizeof(struct roce_bth) + 16));
 
     cc->cnp_ctx.total_cnp_sent++;
 
