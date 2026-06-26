@@ -9,5 +9,6 @@
 
 /* raw reflected IEEE CRC-32, no input/output inversion */
 uint32_t crc32_le(uint32_t crc, const uint8_t *data, size_t length);
+uint32_t crc32_le_slice8(uint32_t crc, const uint8_t *data, size_t length);
 
 #endif

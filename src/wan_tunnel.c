@@ -250,8 +250,8 @@ uint32_t roce_icrc(struct rte_ipv4_hdr *ip, struct rte_udp_hdr *udp,
     udp->dgram_cksum = 0xffff;
     b[4] = 0xff;
 
-    uint32_t crc = crc32_le(0xdebb20e3, (uint8_t *)ip,
-                            sizeof(*ip) + sizeof(*udp) + bth_payload_len);
+    uint32_t crc = crc32_le_slice8(0xdebb20e3, (uint8_t *)ip,
+                                   sizeof(*ip) + sizeof(*udp) + bth_payload_len);
 
     ip->type_of_service = tos;
     ip->time_to_live = ttl;
