@@ -114,11 +114,27 @@ static int port_init(uint16_t port, struct rte_mempool *mbuf_pool, uint32_t num_
         return retval;
     }
 
-    if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE)
-        port_conf.txmode.offloads |= RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
+    /* Do NOT enable RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE: the ARQ layer keeps a
+       transmitted mbuf in its retransmit window via refcount (refcnt > 1), but
+       FAST_FREE requires every TX'd mbuf to have refcnt == 1 and recycles it
+       straight back to the pool -- that would free the window's copy early
+       (use-after-free). */
 
-    port_conf.rxmode.mq_mode = RTE_ETH_MQ_RX_NONE;
     port_conf.txmode.mq_mode = RTE_ETH_MQ_TX_NONE;
+
+    /* With multiple queues, enable RSS so the NIC steers each flow (by IP+UDP
+       5-tuple) to a distinct RX queue, and each lcore reads only its own queue
+       -- real multi-core scaling. RoCEv2's UDP source port varies per QP while
+       the dest port is fixed at 4791, so hashing on UDP spreads QPs across
+       cores while keeping a given flow pinned to one queue/core. */
+    if (num_rx_queues > 1) {
+        port_conf.rxmode.mq_mode = RTE_ETH_MQ_RX_RSS;
+        port_conf.rx_adv_conf.rss_conf.rss_key = NULL;
+        port_conf.rx_adv_conf.rss_conf.rss_hf =
+            (RTE_ETH_RSS_IP | RTE_ETH_RSS_UDP) & dev_info.flow_type_rss_offloads;
+    } else {
+        port_conf.rxmode.mq_mode = RTE_ETH_MQ_RX_NONE;
+    }
 
     retval = rte_eth_dev_configure(port, num_rx_queues, 1, &port_conf);
     if (retval != 0) {
@@ -202,28 +218,15 @@ static int lan_main_loop(void *arg) {
     uint16_t nb_rx;
 
     uint32_t lcore_id = rte_lcore_id();
+    uint16_t queue_id = args->queue_id;
 
+    /* Each core reads only its own dedicated RX queue. RSS already pins a given
+       flow to one queue, so there is no contention over a shared queue and no
+       cross-core packet dropping. */
     while (g_running) {
-        for (uint32_t queue_id = 0; queue_id < g_lan_core_count; queue_id++) {
-            nb_rx = rte_eth_rx_burst(lan_port, queue_id, lan_bufs, BURST_SIZE);
-            if (nb_rx > 0) {
-                for (uint16_t i = 0; i < nb_rx; i++) {
-                    struct rte_mbuf *m = lan_bufs[i];
-                    struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-                    struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
-                    struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)(ip_hdr + 1);
-                    struct roce_bth *bth = (struct roce_bth *)(udp_hdr + 1);
-                    uint32_t qpn = bth_get_qpn(bth);
-                    
-                    uint32_t target_lcore = proc_flow_to_lan_lcore(ip_hdr, udp_hdr, qpn);
-                    if (target_lcore == lcore_id) {
-                        proc_process_lan_rx(proc, m, lan_port, wan_port, pool);
-                    } else {
-                        // FIXME: forward to target lcore's ring instead of drop
-                        rte_pktmbuf_free(m);
-                    }
-                }
-            }
+        nb_rx = rte_eth_rx_burst(lan_port, queue_id, lan_bufs, BURST_SIZE);
+        for (uint16_t i = 0; i < nb_rx; i++) {
+            proc_process_lan_rx(proc, lan_bufs[i], lan_port, wan_port, pool);
         }
 
         rte_pause();
@@ -245,31 +248,16 @@ static int wan_main_loop(void *arg) {
     uint64_t timer_count = 0;
 
     uint32_t lcore_id = rte_lcore_id();
+    uint16_t queue_id = args->queue_id;
 
     uint64_t timer_interval = rte_get_timer_hz() * APP_TIMER_INTERVAL_MS / 1000;
     uint64_t last_timer = rte_rdtsc();
 
+    /* Each core reads only its own dedicated RX queue (RSS pins each flow). */
     while (g_running) {
-        for (uint32_t queue_id = 0; queue_id < g_wan_core_count; queue_id++) {
-            nb_rx = rte_eth_rx_burst(wan_port, queue_id, wan_bufs, BURST_SIZE);
-            if (nb_rx > 0) {
-                for (uint16_t i = 0; i < nb_rx; i++) {
-                    struct rte_mbuf *m = wan_bufs[i];
-                    struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-                    struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
-                    struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)(ip_hdr + 1);
-                    struct roce_bth *bth = (struct roce_bth *)(udp_hdr + 1);
-                    uint32_t qpn = bth_get_qpn(bth);
-                    
-                    uint32_t target_lcore = proc_flow_to_wan_lcore(ip_hdr, udp_hdr, qpn);
-                    if (target_lcore == lcore_id) {
-                        proc_process_wan_rx(proc, m, lan_port, wan_port, pool);
-                    } else {
-                        // FIXME: cross-core forwarding not implemented
-                        rte_pktmbuf_free(m);
-                    }
-                }
-            }
+        nb_rx = rte_eth_rx_burst(wan_port, queue_id, wan_bufs, BURST_SIZE);
+        for (uint16_t i = 0; i < nb_rx; i++) {
+            proc_process_wan_rx(proc, wan_bufs[i], lan_port, wan_port, pool);
         }
 
         uint64_t current = rte_rdtsc();
@@ -483,10 +471,13 @@ int main(int argc, char *argv[]) {
 
     lcore_args_t lcore_args[MAX_LCORES];
 
+    /* LAN lcore i reads LAN-port RX queue i; WAN lcore reads WAN-port RX queue
+       (i - lan_core_count). Queue count per side equals that side's core count. */
     for (uint32_t i = 0; i < g_lan_core_count; i++) {
         lcore_args[i].proc = &g_processors[i];
         lcore_args[i].lan_port = g_lan_port;
         lcore_args[i].wan_port = g_wan_port;
+        lcore_args[i].queue_id = (uint16_t)i;
         lcore_args[i].mbuf_pool = g_mbuf_pool;
         lcore_args[i].is_lan_core = 1;
     }
@@ -494,6 +485,7 @@ int main(int argc, char *argv[]) {
         lcore_args[i].proc = &g_processors[i];
         lcore_args[i].lan_port = g_lan_port;
         lcore_args[i].wan_port = g_wan_port;
+        lcore_args[i].queue_id = (uint16_t)(i - g_lan_core_count);
         lcore_args[i].mbuf_pool = g_mbuf_pool;
         lcore_args[i].is_lan_core = 0;
     }

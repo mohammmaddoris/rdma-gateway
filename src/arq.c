@@ -214,7 +214,15 @@ int arq_handle_nack(arq_context_t *arq, uint32_t nack_psn, uint16_t wan_port) {
         for (uint32_t i = 0; i < retrans_count; i++) {
             uint32_t idx = retrans_idx[i];
             struct rte_mbuf *m = arq->send_window[idx].mbuf;
+            if (!m) {
+                continue;
+            }
+            /* The window keeps ownership of the mbuf: bump the refcount before TX
+             * so it can be retransmitted repeatedly; the NIC frees only this
+             * extra reference. Roll back on failure. */
+            rte_pktmbuf_refcnt_update(m, 1);
             if (rte_eth_tx_burst(wan_port, 0, &m, 1) == 0) {
+                rte_pktmbuf_refcnt_update(m, -1);
                 LOG_WARNF("Failed to retransmit packet QPN 0x%x PSN %u", arq->qpn, retrans_psns[i]);
             }
         }
@@ -240,8 +248,13 @@ void arq_check_timeouts(arq_context_t *arq, uint16_t wan_port) {
                 arq->send_window[idx].retry_count++;
                 arq->total_retransmit++;
 
+                /* Window keeps ownership: bump refcount before TX so the same
+                 * mbuf survives repeated timeout retransmits; the NIC frees only
+                 * this extra reference. Roll back on failure. */
                 struct rte_mbuf *m = arq->send_window[idx].mbuf;
+                rte_pktmbuf_refcnt_update(m, 1);
                 if (rte_eth_tx_burst(wan_port, 0, &m, 1) == 0) {
+                    rte_pktmbuf_refcnt_update(m, -1);
                     LOG_WARNF("Failed to retransmit packet QPN 0x%x PSN %u",
                               arq->qpn, arq->send_window[idx].psn);
                 }

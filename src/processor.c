@@ -250,17 +250,36 @@ void proc_process_lan_rx(processor_context_t *proc, struct rte_mbuf *m, uint16_t
     struct rte_mbuf *wan_m = wan_fwd_roce(m, wan_port);
 
     arq_context_t *arq = arq_get_or_create(&proc->arq_mgr, qpn);
+    int in_window = -1;
     if (arq) {
-        arq_send_pkt(arq, wan_m, psn, segment_type);
+        in_window = arq_send_pkt(arq, wan_m, psn, segment_type);
         arq_set_peer_ip(arq, peer_ip);
     }
 
-    if (rte_eth_tx_burst(wan_port, 0, &wan_m, 1) == 0) {
-        LOG_WARN("Failed to send packet to WAN");
-        rte_pktmbuf_free(wan_m);
-        stat_inc(&proc->stats, STAT_PKTS_DROPPED);
+    if (in_window == 0) {
+        /* wan_m is now owned by the ARQ retransmit window. Bump the refcount
+         * before TX so the NIC releases only this extra reference on completion,
+         * leaving the window's copy intact for later NACK/timeout retransmits
+         * (otherwise the NIC frees it and retransmits hit use-after-free).
+         * Roll the refcount back if the TX queue is full. */
+        rte_pktmbuf_refcnt_update(wan_m, 1);
+        if (rte_eth_tx_burst(wan_port, 0, &wan_m, 1) == 0) {
+            rte_pktmbuf_refcnt_update(wan_m, -1);
+            LOG_WARN("Failed to send packet to WAN");
+            stat_inc(&proc->stats, STAT_PKTS_DROPPED);
+        } else {
+            LOG_DEBUGF("Packet sent to WAN for QPN 0x%x, PSN %u", qpn, psn);
+        }
     } else {
-        LOG_DEBUGF("Packet sent to WAN for QPN 0x%x, PSN %u", qpn, psn);
+        /* Not tracked by ARQ (no context or window full): send directly and
+         * hand ownership to the NIC; free it ourselves only on TX failure. */
+        if (rte_eth_tx_burst(wan_port, 0, &wan_m, 1) == 0) {
+            LOG_WARN("Failed to send packet to WAN");
+            rte_pktmbuf_free(wan_m);
+            stat_inc(&proc->stats, STAT_PKTS_DROPPED);
+        } else {
+            LOG_DEBUGF("Packet sent to WAN for QPN 0x%x, PSN %u", qpn, psn);
+        }
     }
 
     proc->packet_counter++;
@@ -390,10 +409,11 @@ void proc_timer_callback(processor_context_t *proc, uint16_t wan_port) {
         }
     }
 
-    static uint64_t last_stats_dump = 0;
+    /* last_stats_dump lives in the per-core processor_context_t; each WAN lcore
+       owns its own context, so there is no shared-static data race here. */
     uint64_t current_time = rte_rdtsc();
-    if (current_time - last_stats_dump > rte_get_timer_hz() * 10) {
-        last_stats_dump = current_time;
+    if (current_time - proc->last_stats_dump > rte_get_timer_hz() * 10) {
+        proc->last_stats_dump = current_time;
         stat_dump(&proc->stats);
     }
 }

@@ -29,12 +29,14 @@ typedef struct {
     uint32_t lcore_id;
     uint8_t is_lan_core;  // 1 = LAN core, 0 = WAN core
     uint32_t packet_counter;  // drives the periodic congestion check
+    uint64_t last_stats_dump; // per-core stats dump timestamp (avoids shared-static race)
 } processor_context_t;
 
 typedef struct {
     processor_context_t *proc;
     uint16_t lan_port;
     uint16_t wan_port;
+    uint16_t queue_id;   // this core's dedicated RX queue (RSS steers flows here)
     struct rte_mempool *mbuf_pool;
     uint8_t is_lan_core;
 } lcore_args_t;
